@@ -1,0 +1,363 @@
+{
+  "_generated_from": "/Users/bennyg/real_life_clankers/clankers/packages/clankers/src/clankers/config/robots.yaml",
+  "_command": "uv run clankers-export-config",
+  "schema_version": 1,
+  "ports": {
+    "arm_gateway_ws": 9002,
+    "hand_gateway_ws": 9003,
+    "task_runner_ws": 9010,
+    "studio_dev": 18110
+  },
+  "arm": {
+    "name": "rebot_b601_dm",
+    "vendor": "damiao",
+    "transport": "dm-serial",
+    "serial_baud": 921600,
+    "lerobot": {
+      "robot_type": "rebot_b601_follower",
+      "can_adapter": "damiao",
+      "use_gripper": true
+    },
+    "joints": [
+      {
+        "joint": 1,
+        "name": "joint1",
+        "motor_id": 1,
+        "feedback_id": 17,
+        "model": "dm4340",
+        "limit": {
+          "min": -2.61,
+          "max": 2.61
+        },
+        "gains": {
+          "ctrl_mode": 2,
+          "current_bw": 1000,
+          "vel_kp": 0.0125,
+          "vel_ki": 0.004,
+          "pos_kp": 150,
+          "pos_ki": 0.5
+        }
+      },
+      {
+        "joint": 2,
+        "name": "joint2",
+        "motor_id": 2,
+        "feedback_id": 18,
+        "model": "dm4340",
+        "limit": {
+          "min": -3.7,
+          "max": 0.0
+        },
+        "gains": {
+          "ctrl_mode": 2,
+          "current_bw": 1000,
+          "vel_kp": 0.013,
+          "vel_ki": 0.004,
+          "pos_kp": 200,
+          "pos_ki": 10
+        }
+      },
+      {
+        "joint": 3,
+        "name": "joint3",
+        "motor_id": 3,
+        "feedback_id": 19,
+        "model": "dm4340",
+        "limit": {
+          "min": -3.7,
+          "max": 0.0
+        },
+        "gains": {
+          "ctrl_mode": 2,
+          "current_bw": 1000,
+          "vel_kp": 0.013,
+          "vel_ki": 0.004,
+          "pos_kp": 200,
+          "pos_ki": 10
+        }
+      },
+      {
+        "joint": 4,
+        "name": "joint4",
+        "motor_id": 4,
+        "feedback_id": 20,
+        "model": "dm4310",
+        "limit": {
+          "min": -1.57,
+          "max": 1.57
+        },
+        "gains": {
+          "ctrl_mode": 2,
+          "current_bw": 1000,
+          "vel_kp": 0.0008,
+          "vel_ki": 0.002,
+          "pos_kp": 50,
+          "pos_ki": 1
+        }
+      },
+      {
+        "joint": 5,
+        "name": "joint5",
+        "motor_id": 5,
+        "feedback_id": 21,
+        "model": "dm4310",
+        "limit": {
+          "min": -1.57,
+          "max": 1.57
+        },
+        "gains": {
+          "ctrl_mode": 2,
+          "current_bw": 1000,
+          "vel_kp": 0.0008,
+          "vel_ki": 0.002,
+          "pos_kp": 50,
+          "pos_ki": 1
+        }
+      },
+      {
+        "joint": 6,
+        "name": "joint6",
+        "motor_id": 6,
+        "feedback_id": 22,
+        "model": "dm4310",
+        "limit": {
+          "min": -1.57,
+          "max": 1.57
+        },
+        "gains": {
+          "ctrl_mode": 2,
+          "current_bw": 1000,
+          "vel_kp": 0.0008,
+          "vel_ki": 0.002,
+          "pos_kp": 50,
+          "pos_ki": 1
+        }
+      },
+      {
+        "joint": 7,
+        "name": "gripper",
+        "motor_id": 7,
+        "feedback_id": 23,
+        "model": "dm4310",
+        "limit": {
+          "min": -5.7,
+          "max": 0.0
+        },
+        "gains": {
+          "ctrl_mode": 2,
+          "current_bw": 1000,
+          "vel_kp": 0.0008,
+          "vel_ki": 0.002,
+          "pos_kp": 50,
+          "pos_ki": 1
+        }
+      }
+    ],
+    "safety": {
+      "zero_safe_eps_rad": 0.08,
+      "max_step_rad": 0.2,
+      "max_step_rad_gripper": 0.12,
+      "gripper_mit_clamp": {
+        "kp_max": 8,
+        "kd_max": 0.25,
+        "tau_max": 0.8
+      }
+    },
+    "urdf": {
+      "package": "reBot_B601_DM_with_gripper",
+      "path": "apps/studio/public/resources/arm02/reBot_B601_DM_with_gripper/urdf/reBot_B601_DM_with_gripper.urdf",
+      "end_effector_link": null
+    }
+  },
+  "hand": {
+    "name": "leap_hand",
+    "vendor": "dynamixel",
+    "protocol": 2.0,
+    "transport": "u2d2",
+    "revision": "unconfirmed",
+    "calibrated": false,
+    "motor_model": "xc330-m288",
+    "current_limit_ma": 300,
+    "temperature_limit_c": 70,
+    "poll": {
+      "state_hz": 50,
+      "health_hz": 1
+    },
+    "joints": [
+      {
+        "canonical": 0,
+        "servo_id": 0,
+        "name": "index_mcp_side",
+        "finger": "index",
+        "limit": {
+          "min": -1.047,
+          "max": 1.047
+        }
+      },
+      {
+        "canonical": 1,
+        "servo_id": 1,
+        "name": "index_mcp_flex",
+        "finger": "index",
+        "limit": {
+          "min": -0.314,
+          "max": 2.23
+        }
+      },
+      {
+        "canonical": 2,
+        "servo_id": 2,
+        "name": "index_pip",
+        "finger": "index",
+        "limit": {
+          "min": -0.506,
+          "max": 1.885
+        }
+      },
+      {
+        "canonical": 3,
+        "servo_id": 3,
+        "name": "index_dip",
+        "finger": "index",
+        "limit": {
+          "min": -0.366,
+          "max": 2.042
+        }
+      },
+      {
+        "canonical": 4,
+        "servo_id": 4,
+        "name": "thumb_mcp_side",
+        "finger": "thumb",
+        "limit": {
+          "min": -1.047,
+          "max": 1.047
+        }
+      },
+      {
+        "canonical": 5,
+        "servo_id": 5,
+        "name": "thumb_mcp_flex",
+        "finger": "thumb",
+        "limit": {
+          "min": -0.314,
+          "max": 2.23
+        }
+      },
+      {
+        "canonical": 6,
+        "servo_id": 6,
+        "name": "thumb_pip",
+        "finger": "thumb",
+        "limit": {
+          "min": -0.506,
+          "max": 1.885
+        }
+      },
+      {
+        "canonical": 7,
+        "servo_id": 7,
+        "name": "thumb_dip",
+        "finger": "thumb",
+        "limit": {
+          "min": -0.366,
+          "max": 2.042
+        }
+      },
+      {
+        "canonical": 8,
+        "servo_id": 8,
+        "name": "middle_mcp_side",
+        "finger": "middle",
+        "limit": {
+          "min": -1.047,
+          "max": 1.047
+        }
+      },
+      {
+        "canonical": 9,
+        "servo_id": 9,
+        "name": "middle_mcp_flex",
+        "finger": "middle",
+        "limit": {
+          "min": -0.314,
+          "max": 2.23
+        }
+      },
+      {
+        "canonical": 10,
+        "servo_id": 10,
+        "name": "middle_pip",
+        "finger": "middle",
+        "limit": {
+          "min": -0.506,
+          "max": 1.885
+        }
+      },
+      {
+        "canonical": 11,
+        "servo_id": 11,
+        "name": "middle_dip",
+        "finger": "middle",
+        "limit": {
+          "min": -0.366,
+          "max": 2.042
+        }
+      },
+      {
+        "canonical": 12,
+        "servo_id": 12,
+        "name": "ring_base_rot",
+        "finger": "ring",
+        "limit": {
+          "min": -0.349,
+          "max": 2.094
+        }
+      },
+      {
+        "canonical": 13,
+        "servo_id": 13,
+        "name": "ring_mcp_flex",
+        "finger": "ring",
+        "limit": {
+          "min": -0.47,
+          "max": 2.443
+        }
+      },
+      {
+        "canonical": 14,
+        "servo_id": 14,
+        "name": "ring_pip",
+        "finger": "ring",
+        "limit": {
+          "min": -1.2,
+          "max": 1.9
+        }
+      },
+      {
+        "canonical": 15,
+        "servo_id": 15,
+        "name": "ring_dip",
+        "finger": "ring",
+        "limit": {
+          "min": -1.34,
+          "max": 1.88
+        }
+      }
+    ],
+    "safety": {
+      "max_step_rad": 0.15,
+      "heartbeat_interval_s": 0.5,
+      "watchdog_multiplier": 4
+    }
+  },
+  "control": {
+    "policy_hz": 20,
+    "sim_action_scale": 0.041666667
+  },
+  "viz": {
+    "rerun_sdk_pin": "0.30",
+    "memory_limit": "25%",
+    "rrd_cache_max_gb": 20
+  }
+}

@@ -1,0 +1,87 @@
+# Starter pose/skill library, validated at load time against
+# clankers/config/robots.yaml (unknown joint names or out-of-limit values fail loudly —
+# see clankers.tasks.library.load_library).
+#
+# Poses may be partial: unlisted joints hold whatever the robot is currently at
+# (TaskRunner fills them in from get_positions() before planning a move).
+
+poses:
+  # Every joint at 0.0, clamped into its configured limit. Arm joints 2 and 3 have
+  # max: 0.0 (see robots.yaml), so 0.0 is their upper bound, not a centered "zero" —
+  # still a valid, in-limit home value.
+  home:
+    joint1: 0.0
+    joint2: 0.0
+    joint3: 0.0
+    joint4: 0.0
+    joint5: 0.0
+    joint6: 0.0
+    gripper: 0.0
+    index_mcp_side: 0.0
+    index_mcp_flex: 0.0
+    index_pip: 0.0
+    index_dip: 0.0
+    thumb_mcp_side: 0.0
+    thumb_mcp_flex: 0.0
+    thumb_pip: 0.0
+    thumb_dip: 0.0
+    middle_mcp_side: 0.0
+    middle_mcp_flex: 0.0
+    middle_pip: 0.0
+    middle_dip: 0.0
+    ring_base_rot: 0.0
+    ring_mcp_flex: 0.0
+    ring_pip: 0.0
+    ring_dip: 0.0
+
+  # Hand fully open: flex joints (mcp_flex/pip/dip, all 12 of them) at their minimum;
+  # the four side-to-side/rotation joints (mcp_side x3, ring_base_rot) centered at 0.
+  hand_open:
+    index_mcp_side: 0.0
+    index_mcp_flex: -0.314
+    index_pip: -0.506
+    index_dip: -0.366
+    thumb_mcp_side: 0.0
+    thumb_mcp_flex: -0.314
+    thumb_pip: -0.506
+    thumb_dip: -0.366
+    middle_mcp_side: 0.0
+    middle_mcp_flex: -0.314
+    middle_pip: -0.506
+    middle_dip: -0.366
+    ring_base_rot: 0.0
+    ring_mcp_flex: -0.47
+    ring_pip: -1.2
+    ring_dip: -1.34
+
+  # Hand curled: flex joints at ~60% of their max; side-to-side joints stay centered.
+  hand_curl:
+    index_mcp_side: 0.0
+    index_mcp_flex: 1.338
+    index_pip: 1.131
+    index_dip: 1.2252
+    thumb_mcp_side: 0.0
+    thumb_mcp_flex: 1.338
+    thumb_pip: 1.131
+    thumb_dip: 1.2252
+    middle_mcp_side: 0.0
+    middle_mcp_flex: 1.338
+    middle_pip: 1.131
+    middle_dip: 1.2252
+    ring_base_rot: 0.0
+    ring_mcp_flex: 1.4658
+    ring_pip: 1.14
+    ring_dip: 1.128
+
+skills:
+  wave_fingers:
+    steps:
+      - { pose: hand_open, duration_s: 1.5 }
+      - { pose: hand_curl, duration_s: 1.5 }
+      - { pose: hand_open, duration_s: 1.5 }
+
+  demo_open_close:
+    steps:
+      - { pose: hand_open, duration_s: 1.5 }
+      - { pose: hand_curl, duration_s: 1.5 }
+      - { pose: hand_open, duration_s: 1.5 }

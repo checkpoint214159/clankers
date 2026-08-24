@@ -1,0 +1,96 @@
+# Single source of truth for robot topology, IDs, limits, and gains.
+# Consumed by: hand_gateway, lerobot_robot_clankers, viz, tasks, and (as generated
+# JSON via `clankers-export-config`) the studio frontend.
+#
+# Units: radians, rad/s, Nm, mA, °C unless stated. Quaternions are (x, y, z, w).
+
+schema_version: 1
+
+ports:
+  arm_gateway_ws: 9002 # motorbridge ws_gateway (existing, one process per bus)
+  hand_gateway_ws: 9003 # clankers hand gateway
+  task_runner_ws: 9010
+  studio_dev: 18110
+
+arm:
+  name: rebot_b601_dm
+  vendor: damiao
+  transport: dm-serial # Mac: /dev/cu.usbmodem*; 921600 baud; gateway --dt-ms 20
+  serial_baud: 921600
+  lerobot:
+    robot_type: rebot_b601_follower # upstream LeRobot ≥0.6; can_adapter=damiao (serial bridge)
+    can_adapter: damiao
+    # The stock config assumes 7 motors incl. gripper. Once the gripper is replaced by
+    # the LEAP adapter, use a 6-joint config (drop joint 7). See ADR-0001 / plan step 6b.
+    use_gripper: true # flip to false when the adapter is mounted
+  # From motorbridge-studio src/lib/robotArm.js (rebot-arm-damiao profile, proven on hardware).
+  # feedback_id (Master ID) convention: 0x10 + motor_id. Never set Master ID to 0x00.
+  joints:
+    - { joint: 1, name: joint1, motor_id: 0x01, feedback_id: 0x11, model: dm4340, limit: { min: -2.61, max: 2.61 }, gains: { ctrl_mode: 2, current_bw: 1000, vel_kp: 0.0125, vel_ki: 0.004, pos_kp: 150, pos_ki: 0.5 } }
+    - { joint: 2, name: joint2, motor_id: 0x02, feedback_id: 0x12, model: dm4340, limit: { min: -3.7, max: 0.0 }, gains: { ctrl_mode: 2, current_bw: 1000, vel_kp: 0.013, vel_ki: 0.004, pos_kp: 200, pos_ki: 10 } }
+    - { joint: 3, name: joint3, motor_id: 0x03, feedback_id: 0x13, model: dm4340, limit: { min: -3.7, max: 0.0 }, gains: { ctrl_mode: 2, current_bw: 1000, vel_kp: 0.013, vel_ki: 0.004, pos_kp: 200, pos_ki: 10 } }
+    - { joint: 4, name: joint4, motor_id: 0x04, feedback_id: 0x14, model: dm4310, limit: { min: -1.57, max: 1.57 }, gains: { ctrl_mode: 2, current_bw: 1000, vel_kp: 0.0008, vel_ki: 0.002, pos_kp: 50, pos_ki: 1 } }
+    - { joint: 5, name: joint5, motor_id: 0x05, feedback_id: 0x15, model: dm4310, limit: { min: -1.57, max: 1.57 }, gains: { ctrl_mode: 2, current_bw: 1000, vel_kp: 0.0008, vel_ki: 0.002, pos_kp: 50, pos_ki: 1 } }
+    - { joint: 6, name: joint6, motor_id: 0x06, feedback_id: 0x16, model: dm4310, limit: { min: -1.57, max: 1.57 }, gains: { ctrl_mode: 2, current_bw: 1000, vel_kp: 0.0008, vel_ki: 0.002, pos_kp: 50, pos_ki: 1 } }
+    - { joint: 7, name: gripper, motor_id: 0x07, feedback_id: 0x17, model: dm4310, limit: { min: -5.7, max: 0.0 }, gains: { ctrl_mode: 2, current_bw: 1000, vel_kp: 0.0008, vel_ki: 0.002, pos_kp: 50, pos_ki: 1 } }
+  safety:
+    zero_safe_eps_rad: 0.08 # refuse "zero all" unless every joint is near previous zero
+    max_step_rad: 0.2 # per-command position step clamp
+    max_step_rad_gripper: 0.12
+    gripper_mit_clamp: { kp_max: 8, kd_max: 0.25, tau_max: 0.8 }
+  urdf:
+    package: reBot_B601_DM_with_gripper
+    path: apps/studio/public/resources/arm02/reBot_B601_DM_with_gripper/urdf/reBot_B601_DM_with_gripper.urdf
+    end_effector_link: null # set when adapter URDF lands
+
+hand:
+  name: leap_hand
+  vendor: dynamixel
+  protocol: 2.0
+  transport: u2d2 # /dev/tty.usbserial-*; default 4M baud on LEAP builds — confirm at scan
+  revision: unconfirmed # V1 vs V2 — decides current-limit policy below
+  # PROVISIONAL: joint order/semantics ported from
+  # dexterousmanipulation/docs/leap_hand_joint_map.md (sim-URDF canonical_pose order).
+  # Signs are a working hypothesis; servo_id assignments assume the LEAP convention
+  # servo_id == canonical index — MUST be confirmed at torque-off bring-up
+  # (docs/plans/bringup.md) before any torque-on motion trusts this table.
+  calibrated: false
+  motor_model: xc330-m288 # confirm against actual build sheet
+  current_limit_ma: 300 # V1 may raise toward 550; V2 docs forbid raising. Keep 300 until revision confirmed.
+  temperature_limit_c: 70 # XC330 default shutdown threshold; do not raise
+  poll:
+    state_hz: 50 # pos/vel/current sync read (≤500 Hz possible; USB degrades above)
+    health_hz: 1 # temp/voltage
+  joints:
+    # canonical = index in dexmanip canonical_pose / sim obs-action vectors.
+    # finger labels are the dexmanip empirical labelling (URDF link names are misleading).
+    - { canonical: 0, servo_id: 0, name: index_mcp_side, finger: index, limit: { min: -1.047, max: 1.047 } }
+    - { canonical: 1, servo_id: 1, name: index_mcp_flex, finger: index, limit: { min: -0.314, max: 2.230 } }
+    - { canonical: 2, servo_id: 2, name: index_pip, finger: index, limit: { min: -0.506, max: 1.885 } }
+    - { canonical: 3, servo_id: 3, name: index_dip, finger: index, limit: { min: -0.366, max: 2.042 } }
+    - { canonical: 4, servo_id: 4, name: thumb_mcp_side, finger: thumb, limit: { min: -1.047, max: 1.047 } }
+    - { canonical: 5, servo_id: 5, name: thumb_mcp_flex, finger: thumb, limit: { min: -0.314, max: 2.230 } }
+    - { canonical: 6, servo_id: 6, name: thumb_pip, finger: thumb, limit: { min: -0.506, max: 1.885 } }
+    - { canonical: 7, servo_id: 7, name: thumb_dip, finger: thumb, limit: { min: -0.366, max: 2.042 } }
+    - { canonical: 8, servo_id: 8, name: middle_mcp_side, finger: middle, limit: { min: -1.047, max: 1.047 } }
+    - { canonical: 9, servo_id: 9, name: middle_mcp_flex, finger: middle, limit: { min: -0.314, max: 2.230 } }
+    - { canonical: 10, servo_id: 10, name: middle_pip, finger: middle, limit: { min: -0.506, max: 1.885 } }
+    - { canonical: 11, servo_id: 11, name: middle_dip, finger: middle, limit: { min: -0.366, max: 2.042 } }
+    - { canonical: 12, servo_id: 12, name: ring_base_rot, finger: ring, limit: { min: -0.349, max: 2.094 } }
+    - { canonical: 13, servo_id: 13, name: ring_mcp_flex, finger: ring, limit: { min: -0.470, max: 2.443 } }
+    - { canonical: 14, servo_id: 14, name: ring_pip, finger: ring, limit: { min: -1.200, max: 1.900 } }
+    - { canonical: 15, servo_id: 15, name: ring_dip, finger: ring, limit: { min: -1.340, max: 1.880 } }
+  safety:
+    max_step_rad: 0.15 # per-command position step clamp
+    heartbeat_interval_s: 0.5 # commanding clients must send heartbeat at this rate
+    watchdog_multiplier: 4 # torque off after 4 missed heartbeat intervals (3-5x convention)
+
+control:
+  # Sim-derived starting points (dexmanip LeapHandRot) — validate on hardware before trusting.
+  policy_hz: 20
+  sim_action_scale: 0.041666667 # 1/24 rad per policy step (delta actions)
+
+viz:
+  rerun_sdk_pin: "0.30" # .rrd not stable across minors; keep SDK+viewer+npm web-viewer aligned
+  memory_limit: "25%"
+  rrd_cache_max_gb: 20 # data/rrd GC threshold; failures retained longest

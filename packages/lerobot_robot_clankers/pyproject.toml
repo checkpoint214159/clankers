@@ -1,0 +1,24 @@
+[project]
+# NOTE: underscores are load-bearing — lerobot's register_third_party_plugins() only
+# auto-imports installed distributions whose metadata Name starts with "lerobot_robot_".
+name = "lerobot_robot_clankers"
+version = "0.1.0"
+description = "LeRobot robot plugin: LEAP hand + ClankerStation (reBot B601-DM arm + hand composite)"
+requires-python = ">=3.12"
+dependencies = [
+    "clankers",
+]
+
+[project.optional-dependencies]
+# lerobot is required to actually run the robots; kept optional so config/schema
+# tests import without the torch stack. Install with: uv sync --extra hardware
+hardware = [
+    "lerobot>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lerobot_robot_clankers"]

@@ -1,0 +1,19 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# node
+node_modules/
+dist/
+
+# data: LeRobotDataset episodes + ephemeral rrd cache (source of truth syncs via HF Hub)
+data/
+
+# local env
+.env
+*.local
+.DS_Store

@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# clankersctl - switch between clankers session modes (debug | task | studio | export-config).
+#
+# Serial ports are exclusive: one process per bus at a time (docs/glossary.md "bus";
+# ADR-0002). This script tracks bus ownership with pidfiles under /tmp/clankers/ and
+# refuses to start a second owner unless --force is given (with a warning).
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PIDFILE_DIR="/tmp/clankers"
+
+log()  { printf '[clankersctl] %s\n' "$*" >&2; }
+warn() { printf '[clankersctl] WARNING: %s\n' "$*" >&2; }
+die()  { printf '[clankersctl] ERROR: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Usage: clankersctl <subcommand> [options]
+
+Subcommands:
+  debug             Start the hand gateway (:9003). Prints the motorbridge arm gateway
+                     (:9002) command to run yourself in another terminal -- it needs the
+                     physical Damiao serial device, so clankersctl never starts it.
+                       --real              talk to real hand hardware (default: --mock)
+                       --serial-port PATH  U2D2 device; required with --real
+                       --port PORT         override ports.hand_gateway_ws
+                       --force             override an existing owner of the hand bus
+
+  task               Start the task runner (:9010).
+                       --real              drive real hardware via LerobotAdapter (default: --fake)
+                       --port PORT         override ports.task_runner_ws
+                       --force             override an existing owner of the hand/arm bus
+                                           (only relevant with --real)
+
+  studio             Start the studio dev server (cd apps/studio && npm run dev, :18110).
+
+  export-config      Regenerate the studio's JSON copy of robots.yaml
+                      (uv run clankers-export-config).
+
+  -h, --help         Show this help.
+
+One process per physical bus (arm dm-serial, hand U2D2) at a time -- see docs/glossary.md
+"bus" and ADR-0002. Ownership is tracked in /tmp/clankers/<bus>.pid.
+EOF
+}
+
+# --- bus exclusivity ---------------------------------------------------------------
+
+pidfile_for() { printf '%s/%s.pid' "$PIDFILE_DIR" "$1"; }
+
+pid_is_alive() { kill -0 "$1" 2>/dev/null; }
+
+# acquire_bus <bus-name> <force: 0|1>
+#
+# Refuses to proceed if another live process already owns the bus, unless force=1 (in
+# which case it warns and proceeds anyway -- both processes may then contend for the
+# same serial device; that's the caller's explicit call). A stale pidfile (owner no
+# longer running) is cleaned up silently. Writes $$ as the new owner; since the caller
+# execs into the long-running process next, $$ still names it (exec preserves PID).
+acquire_bus() {
+  local bus="$1" force="$2" pf owner
+  mkdir -p "$PIDFILE_DIR"
+  pf="$(pidfile_for "$bus")"
+  if [[ -f "$pf" ]]; then
+    owner="$(cat "$pf" 2>/dev/null || true)"
+    if [[ -n "$owner" ]] && pid_is_alive "$owner"; then
+      if [[ "$force" == "1" ]]; then
+        warn "bus '$bus' is already owned by PID $owner; --force given, proceeding anyway."
+        warn "both processes may now contend for the same serial device."
+      else
+        die "bus '$bus' is already owned by PID $owner (see $pf). Pass --force to override."
+      fi
+    else
+      log "clearing stale pidfile for bus '$bus' (PID ${owner:-?} is not running)."
+    fi
+  fi
+  echo "$$" > "$pf"
+}
+
+# --- shared arg parsing -------------------------------------------------------------
+
+parse_common_flags() {
+  # Sets REAL=0/1, FORCE=0/1, PORT="" (or an override), SERIAL_PORT="" as a side effect
+  # of consuming recognized flags from "$@"; unrecognized args are fatal.
+  REAL=0
+  FORCE=0
+  PORT=""
+  SERIAL_PORT=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --real) REAL=1; shift ;;
+      --force) FORCE=1; shift ;;
+      --port) PORT="${2:?--port requires a value}"; shift 2 ;;
+      --serial-port) SERIAL_PORT="${2:?--serial-port requires a value}"; shift 2 ;;
+      *) die "unrecognized option: $1 (see --help)" ;;
+    esac
+  done
+}
+
+# --- subcommands ----------------------------------------------------------------------
+
+cmd_debug() {
+  parse_common_flags "$@"
+
+  if [[ "$REAL" == "1" && -z "$SERIAL_PORT" ]]; then
+    die "--real requires --serial-port <device> (e.g. /dev/tty.usbserial-*)."
+  fi
+
+  acquire_bus hand "$FORCE"
+
+  local mode_args=()
+  if [[ "$REAL" == "1" ]]; then
+    mode_args=(--serial-port "$SERIAL_PORT")
+    log "starting hand gateway against real hardware on $SERIAL_PORT."
+  else
+    mode_args=(--mock)
+    log "starting hand gateway with --mock (pass --real --serial-port <device> for hardware)."
+  fi
+  if [[ -n "$PORT" ]]; then
+    mode_args+=(--port "$PORT")
+  fi
+
+  print_arm_gateway_command
+
+  log "hand gateway (this process, PID $$) owns bus 'hand'. Ctrl-C to stop and release it."
+  cd "$REPO_ROOT"
+  exec uv run clankers-hand-gateway "${mode_args[@]}"
+}
+
+cmd_task() {
+  parse_common_flags "$@"
+
+  local mode_args=()
+  if [[ "$REAL" == "1" ]]; then
+    acquire_bus hand "$FORCE"
+    acquire_bus arm "$FORCE"
+    mode_args=(--real)
+    log "starting task runner against real hardware (owns both 'hand' and 'arm' buses)."
+  else
+    mode_args=(--fake)
+    log "starting task runner with --fake (no bus ownership; pass --real for hardware)."
+  fi
+  if [[ -n "$PORT" ]]; then
+    mode_args+=(--port "$PORT")
+  fi
+
+  log "task runner (this process, PID $$) starting. Ctrl-C to stop."
+  cd "$REPO_ROOT"
+  exec uv run clankers-task-runner "${mode_args[@]}"
+}
+
+cmd_studio() {
+  log "starting studio dev server (:18110)."
+  cd "$REPO_ROOT/apps/studio"
+  exec npm run dev
+}
+
+cmd_export_config() {
+  cd "$REPO_ROOT"
+  exec uv run clankers-export-config
+}
+
+print_arm_gateway_command() {
+  log "arm gateway needs the physical Damiao serial device -- start it yourself, in"
+  log "another terminal (clankersctl never auto-starts it):"
+  echo >&2
+  (
+    cd "$REPO_ROOT"
+    uv run python3 - <<'PYEOF'
+from clankers.config import load_robots
+
+cfg = load_robots()
+port = cfg.ports["arm_gateway_ws"]
+baud = cfg.arm.serial_baud
+print(
+    f"  motorbridge-gateway -- \\\n"
+    f"    --bind 127.0.0.1:{port} \\\n"
+    f"    --vendor damiao --transport dm-serial \\\n"
+    f"    --serial-port /dev/cu.usbmodemXXXX --serial-baud {baud} \\\n"
+    f"    --dt-ms 20"
+)
+PYEOF
+  ) >&2
+  echo >&2
+  log "replace /dev/cu.usbmodemXXXX with the actual device (see: ls /dev/cu.usbmodem*)."
+}
+
+# --- entrypoint ----------------------------------------------------------------------
+
+main() {
+  if [[ $# -eq 0 ]]; then
+    usage
+    exit 1
+  fi
+  local subcommand="$1"
+  shift
+  case "$subcommand" in
+    debug) cmd_debug "$@" ;;
+    task) cmd_task "$@" ;;
+    studio) cmd_studio "$@" ;;
+    export-config) cmd_export_config "$@" ;;
+    -h|--help) usage ;;
+    *) usage; die "unknown subcommand: $subcommand" ;;
+  esac
+}
+
+main "$@"

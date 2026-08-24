@@ -1,0 +1,293 @@
+/* LEAP hand + task runner pages. Reuses base.css tokens (--strong, --ok, --err, --muted, --line)
+   and the .card/.chip/.tip/.row/.ghostBtn/.dangerBtn vocabulary from the arm pages. */
+
+.provisionalBanner {
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: #fff6eb;
+  border: 1px solid #f5c389;
+  color: #8a3f00;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dupWarningBanner {
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: #fff1f3;
+  border: 1px solid #f3b7c3;
+  color: #b02852;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.watchdogTripBanner {
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: #fdeeee;
+  border: 1px solid #f0a8ab;
+  color: #a11d2a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.handConnCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.handConnUrl {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.handStatusDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #cc3d5f;
+  box-shadow: 0 0 0 5px rgba(204, 61, 95, 0.14);
+  display: inline-block;
+}
+
+.handStatusDot.connected {
+  background: #12b36f;
+  box-shadow: 0 0 0 5px rgba(18, 179, 111, 0.16);
+}
+
+.handStatusDot.connecting {
+  background: #d99a1f;
+  box-shadow: 0 0 0 5px rgba(217, 154, 31, 0.16);
+}
+
+.handScanResult {
+  margin-bottom: 12px;
+}
+
+.handScanHitRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 3px 0;
+}
+
+.fingerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.fingerSection {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px;
+  background: linear-gradient(180deg, #ffffff, #f8faff);
+}
+
+.fingerSectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.fingerSectionHead h3 {
+  margin: 0;
+  font-size: 14px;
+  text-transform: capitalize;
+}
+
+.jointCardStack {
+  display: grid;
+  gap: 8px;
+}
+
+.jointCard {
+  border: 1px solid #d8e1fb;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.jointCardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.jointCardName {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.jointCardServo {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.jointCardTelemetry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+  font-size: 11px;
+  color: #34456f;
+  margin-bottom: 6px;
+}
+
+.jointCardTelemetry b {
+  color: #5b6c94;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.tempBadge {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.tempBadge.ok {
+  background: #f1fff8;
+  color: #198a5a;
+  border-color: #d6f3e3;
+}
+
+.tempBadge.warn {
+  background: #fff6eb;
+  color: #8a3f00;
+  border-color: #f5c389;
+}
+
+.tempBadge.danger {
+  background: #fdeeee;
+  color: #a11d2a;
+  border-color: #f0a8ab;
+}
+
+.tempBadge.unknown {
+  background: #f1f4fa;
+  color: #7f8aa8;
+  border-color: #d7deef;
+}
+
+.faultChipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+  min-height: 18px;
+}
+
+.faultChip {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+}
+
+.faultChip--warn {
+  background: #fff6eb;
+  color: #8a3f00;
+  border-color: #f5c389;
+}
+
+.faultChip--danger {
+  background: #fdeeee;
+  color: #a11d2a;
+  border-color: #f0a8ab;
+}
+
+.jogRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jogBtn {
+  min-width: 30px;
+  height: 28px;
+  padding: 0;
+  font-weight: 800;
+}
+
+.presetGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.taskGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.taskCard {
+  border: 1px solid #d8e1fb;
+  border-radius: 12px;
+  padding: 10px;
+  background: linear-gradient(180deg, #ffffff, #f7f9ff);
+  text-align: left;
+  cursor: pointer;
+}
+
+.taskCard:hover {
+  border-color: #8fa8ff;
+}
+
+.taskCard.running {
+  border-color: #6b8bff;
+  box-shadow: 0 0 0 2px rgba(86, 125, 255, 0.2);
+}
+
+.taskCard.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.taskCardKind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.taskCardName {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.taskStopBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.taskStopBtn {
+  font-size: 15px;
+  padding: 12px 22px;
+}
+
+.taskRunningBadge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1d3c7a;
+}
