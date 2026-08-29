@@ -6,6 +6,11 @@ import robotsConfig from '../generated/robotsConfig.json';
 import { useHandGateway } from '../hooks/useHandGateway';
 
 vi.mock('../hooks/useHandGateway', () => ({ useHandGateway: vi.fn() }));
+// The arm is driven through the shared studio session rather than its own gateway hook.
+vi.mock('../hooks/useMotorStudioContext', () => ({
+  useRobotArmContext: vi.fn(),
+  useConnectionContext: vi.fn(),
+}));
 // The viewer pulls in three.js + WebGL, which jsdom has no business running; the page's
 // contract with it is just "gets a joint map and the clankers profile".
 vi.mock('./ArmUrdfViewer', () => ({
@@ -18,7 +23,25 @@ vi.mock('./ArmUrdfViewer', () => ({
   ),
 }));
 
+const { useConnectionContext, useRobotArmContext } = await import('../hooks/useMotorStudioContext');
 const { CombinedPage } = await import('./CombinedPage');
+
+function makeArm(overrides = {}) {
+  return {
+    armBulkBusy: false,
+    enableAllRobotArm: vi.fn().mockResolvedValue(true),
+    disableAllRobotArm: vi.fn().mockResolvedValue(true),
+    resetPoseRobotArm: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  };
+}
+
+function useArm(armOverrides = {}, connected = true) {
+  const armCtx = makeArm(armOverrides);
+  useRobotArmContext.mockReturnValue(armCtx);
+  useConnectionContext.mockReturnValue({ connected });
+  return armCtx;
+}
 
 function makeHand(overrides = {}) {
   return {
@@ -54,6 +77,7 @@ afterEach(() => {
 
 describe('CombinedPage', () => {
   it('drives the combined profile with every arm and hand joint', () => {
+    useArm({}, false);
     useHandGateway.mockReturnValue(makeHand());
     render(<CombinedPage />);
     expect(screen.getByTestId('viewer').dataset.profile).toBe('clankers');
@@ -64,6 +88,7 @@ describe('CombinedPage', () => {
   });
 
   it('warns that the adapter mount is provisional', () => {
+    useArm({}, false);
     useHandGateway.mockReturnValue(makeHand());
     render(<CombinedPage />);
     expect(screen.getByText(/provisional/i)).toBeTruthy();
@@ -74,6 +99,7 @@ describe('CombinedPage', () => {
     // servo->joint map is confirmed, so the UI must not offer a command that gets refused.
     // Tied to the config rather than a fixed value — confirming the hand on the bench
     // should flip this button, not fail this test.
+    useArm({}, false);
     useHandGateway.mockReturnValue(makeHand({ connected: true }));
     render(<CombinedPage />);
     const btn = screen.getByRole('button', { name: /send hand pose/i });
@@ -82,6 +108,7 @@ describe('CombinedPage', () => {
 
   it('jogs a single joint through the gateway, which is the bring-up path', async () => {
     const hand = makeHand({ connected: true });
+    useArm({}, false);
     useHandGateway.mockReturnValue(hand);
     render(<CombinedPage />);
     fireEvent.click(screen.getByLabelText('jog index_mcp_flex positive'));
@@ -92,6 +119,7 @@ describe('CombinedPage', () => {
   });
 
   it('mirrors live gateway positions into the model', async () => {
+    useArm({}, false);
     useHandGateway.mockReturnValue(
       makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.4 }] }),
     );
@@ -100,6 +128,7 @@ describe('CombinedPage', () => {
   });
 
   it('stops mirroring when the operator turns it off', async () => {
+    useArm({}, false);
     useHandGateway.mockReturnValue(
       makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.4 }] }),
     );
@@ -111,6 +140,7 @@ describe('CombinedPage', () => {
   });
 
   it('poses the model from an arm slider', () => {
+    useArm({}, false);
     useHandGateway.mockReturnValue(makeHand());
     render(<CombinedPage />);
     fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '0.75' } });
@@ -118,6 +148,7 @@ describe('CombinedPage', () => {
   });
 
   it('clamps an arm slider to its robots.yaml limit', () => {
+    useArm({}, false);
     useHandGateway.mockReturnValue(makeHand());
     render(<CombinedPage />);
     const j1 = robotsConfig.arm.joints.find((j) => j.name === 'joint1');
@@ -126,6 +157,7 @@ describe('CombinedPage', () => {
   });
 
   it('curls the hand without touching the arm', () => {
+    useArm({}, false);
     useHandGateway.mockReturnValue(makeHand());
     render(<CombinedPage />);
     fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '0.5' } });
@@ -133,5 +165,68 @@ describe('CombinedPage', () => {
     const joints = viewerJoints();
     expect(joints.joint1).toBeCloseTo(0.5);
     expect(joints.index_mcp_flex).not.toBe(0);
+  });
+
+  it('resets both halves from one press, through the shared arm session', async () => {
+    const armCtx = useArm({}, true);
+    const hand = makeHand({ connected: true });
+    useHandGateway.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /reset all poses/i }));
+    await waitFor(() => expect(armCtx.resetPoseRobotArm).toHaveBeenCalledTimes(1));
+    // The hand half only goes out if robots.yaml says the joint map is confirmed.
+    if (robotsConfig.hand.calibrated) {
+      await waitFor(() => expect(hand.ops.pos).toHaveBeenCalledTimes(1));
+      const sent = hand.ops.pos.mock.calls[0][0];
+      expect(Object.keys(sent)).toHaveLength(16);
+      for (const v of Object.values(sent)) expect(v).toBeCloseTo(0);
+    }
+  });
+
+  it('does not touch the arm when its gateway is disconnected', async () => {
+    const armCtx = useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGateway.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /reset all poses/i }));
+    await waitFor(() => expect(screen.getByText(/skipped .*arm/i)).toBeTruthy());
+    expect(armCtx.resetPoseRobotArm).not.toHaveBeenCalled();
+  });
+
+  it('offers no reset at all when neither side is ready', () => {
+    useArm({}, false);
+    useHandGateway.mockReturnValue(makeHand({ connected: false }));
+    render(<CombinedPage />);
+    expect(screen.getByRole('button', { name: /reset all poses/i }).disabled).toBe(true);
+  });
+
+  it('drives arm enable/disable through the shared session', async () => {
+    const armCtx = useArm({}, true);
+    useHandGateway.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+
+    const armButtons = screen.getAllByRole('button', { name: /^enable all$/i });
+    fireEvent.click(armButtons[0]);
+    await waitFor(() => expect(armCtx.enableAllRobotArm).toHaveBeenCalled());
+  });
+
+  it('locks arm controls while a bulk arm op is already running', () => {
+    useArm({ armBulkBusy: true }, true);
+    useHandGateway.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+    expect(screen.getByRole('button', { name: /reset pose/i }).disabled).toBe(true);
+  });
+
+  it('enables hand torque through the gateway', async () => {
+    useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGateway.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    const buttons = screen.getAllByRole('button', { name: /^enable all$/i });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(hand.ops.enable).toHaveBeenCalled());
   });
 });
