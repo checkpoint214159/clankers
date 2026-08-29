@@ -121,11 +121,11 @@ export const en = {
   arm_scan_joint: 'Scan Joint',
   arm_enable_all: 'Enable All',
   arm_disable_all: 'Disable All',
-  arm_zero_all: 'Zero All',
+  arm_zero_all: 'Set Mechanical Zero (all joints)',
   arm_reset_pose: 'Reset Pose',
   arm_bulk_busy:
     'Bulk operation running: live dragging and per-joint controls are temporarily locked.',
-  arm_zero_all_guard_hint: 'Safety gate: "Zero All" is allowed only when all joints are near zero.',
+  arm_zero_all_guard_hint: 'Safety gate: setting mechanical zero is allowed only when all joints are already near their current zero. This rewrites the encoder reference — it does not move the arm.',
   arm_zero_all_blocked: 'Safety check failed. Joints not near zero (±{{eps}}rad): {{joints}}',
   arm_zero_all_force_title: 'Force Zero Confirmation',
   arm_zero_all_force_hint:
@@ -193,7 +193,7 @@ export const en = {
   joint: 'Joint',
   arm_left_joints: '7 Joint Cards',
   arm_right_control: 'Joint Control',
-  arm_zero_current: 'Zero This Joint',
+  arm_zero_current: 'Set This Joint\'s Mechanical Zero',
   arm_pos_slider: 'Position Slider',
   arm_pos_range_hint: 'Range: -3.14 .. 3.14',
   arm_live_move: 'Live move while dragging',

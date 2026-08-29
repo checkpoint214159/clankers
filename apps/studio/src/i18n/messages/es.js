@@ -120,7 +120,7 @@ export const es = {
   arm_scan_joint: 'Escanear articulación',
   arm_enable_all: 'Habilitar todas',
   arm_disable_all: 'Deshabilitar todas',
-  arm_zero_all: 'Calibrar cero todas',
+  arm_zero_all: 'Fijar cero mecánico (todas)',
   arm_reset_pose: 'Volver a cero mecánico',
   arm_bulk_busy:
     'Operación por lotes en curso: arrastre en vivo y control por articulación bloqueados temporalmente.',
@@ -198,7 +198,7 @@ export const es = {
   joint: 'Articulación',
   arm_left_joints: 'Tarjetas de 7 articulaciones',
   arm_right_control: 'Control de articulación',
-  arm_zero_current: 'Cero de esta articulación',
+  arm_zero_current: 'Fijar cero mecánico de esta junta',
   arm_pos_slider: 'Slider de posición',
   arm_pos_range_hint: 'Rango: -3.14 .. 3.14',
   arm_live_move: 'Mover en vivo al arrastrar',

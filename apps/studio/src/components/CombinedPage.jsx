@@ -158,8 +158,11 @@ export function CombinedPage() {
         <div className="row toolbar compactToolbar">
           <strong>Whole system</strong>
           <span className="muted">6 arm + 16 hand joints</span>
+          {/* Named for what it does, not "Zero all": the arm section has a *mechanical*
+              zero that rewrites the encoder reference, and two buttons a letter apart doing
+              opposite things is how a reference gets destroyed by accident. */}
           <button className="primary strong" onClick={zeroAll} disabled={busy || !canSendPose}>
-            Zero all
+            Go to zero pose
           </button>
           <span className="muted">|</span>
           <span className="muted">sliders only:</span>
@@ -283,7 +286,7 @@ export function CombinedPage() {
         title="Arm controls"
         collapsed={!armOpen}
         onToggleCollapsed={() => setArmOpen((v) => !v)}
-        collapsedHint="Live per-joint motion, mechanical zeroing, motor parameters, self-check."
+        collapsedHint="Live per-joint motion, motor parameters, self-check, and Set Mechanical Zero — which rewrites the encoder reference and is not the same as Go to zero pose."
       >
         <RobotArmPage showViewer={false} />
       </CollapsibleSection>

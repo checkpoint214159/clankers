@@ -180,7 +180,7 @@ describe('CombinedPage', () => {
     useHandGatewayContext.mockReturnValue(hand);
     render(<CombinedPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zero all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to zero pose' }));
     await waitFor(() => expect(armCtx.resetPoseRobotArm).toHaveBeenCalledTimes(1));
     // The hand half only goes out if robots.yaml says the joint map is confirmed.
     if (robotsConfig.hand.calibrated) {
@@ -197,7 +197,7 @@ describe('CombinedPage', () => {
     useHandGatewayContext.mockReturnValue(hand);
     render(<CombinedPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zero all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to zero pose' }));
     await waitFor(() => expect(screen.getByText(/skipped .*arm/i)).toBeTruthy());
     expect(armCtx.resetPoseRobotArm).not.toHaveBeenCalled();
   });
@@ -206,7 +206,7 @@ describe('CombinedPage', () => {
     useArm({}, false);
     useHandGatewayContext.mockReturnValue(makeHand({ connected: false }));
     render(<CombinedPage />);
-    expect(screen.getByRole('button', { name: 'Zero all' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Go to zero pose' }).disabled).toBe(true);
   });
 
   it('drives arm enable/disable through the shared session', async () => {
@@ -224,6 +224,21 @@ describe('CombinedPage', () => {
     useHandGatewayContext.mockReturnValue(makeHand());
     render(<CombinedPage />);
     expect(screen.getAllByRole('button', { name: 'Enable all' })[0].disabled).toBe(true);
+  });
+
+  it('never offers two differently-meaning buttons called "zero all"', () => {
+    // The arm section's "Set Mechanical Zero" rewrites the encoder reference and persists
+    // to motor flash; this page's zero only commands the zero pose. They were once both
+    // called "Zero all", one capital letter apart, on the same screen.
+    useArm({}, true);
+    useHandGatewayContext.mockReturnValue(makeHand({ connected: true }));
+    render(<CombinedPage />);
+
+    expect(screen.getByRole('button', { name: 'Go to zero pose' })).toBeTruthy();
+    const ambiguous = screen
+      .getAllByRole('button')
+      .filter((b) => /^\s*zero all\s*$/i.test(b.textContent || ''));
+    expect(ambiguous).toEqual([]);
   });
 
   it('mounts the gateway panel and both detail sections, arm viewer suppressed', () => {
