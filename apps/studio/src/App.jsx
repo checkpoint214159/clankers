@@ -9,6 +9,7 @@ import { StateLogsPanel } from './components/StateLogsPanel';
 import { RobotArmPage } from './components/RobotArmPage';
 import { LeapHandPage } from './components/LeapHandPage';
 import { TasksPage } from './components/TasksPage';
+import { CombinedPage } from './components/CombinedPage';
 import { SimuPage } from './third_page';
 import { HelpCenterModal } from './components/HelpCenterModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -59,6 +60,9 @@ export default function App() {
             <button className={page === 'leap_hand' ? 'primary' : ''} onClick={() => setPage('leap_hand')}>
               {t('page_leap_hand')}
             </button>
+            <button className={page === 'combined' ? 'primary' : ''} onClick={() => setPage('combined')}>
+              {t('page_combined')}
+            </button>
             <button className={page === 'tasks' ? 'primary' : ''} onClick={() => setPage('tasks')}>
               {t('page_tasks')}
             </button>
@@ -88,6 +92,7 @@ export default function App() {
         )}
         {page === 'robot_arm' && <RobotArmPage />}
         {page === 'leap_hand' && <LeapHandPage />}
+        {page === 'combined' && <CombinedPage />}
         {page === 'tasks' && <TasksPage />}
 
         <StateLogsPanel />

@@ -1,0 +1,134 @@
+// @vitest-environment jsdom
+import React from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import robotsConfig from '../generated/robotsConfig.json';
+import { useHandGateway } from '../hooks/useHandGateway';
+
+vi.mock('../hooks/useHandGateway', () => ({ useHandGateway: vi.fn() }));
+// The viewer pulls in three.js + WebGL, which jsdom has no business running; the page's
+// contract with it is just "gets a joint map and the clankers profile".
+vi.mock('./ArmUrdfViewer', () => ({
+  ArmUrdfViewer: ({ jointTargets, profile }) => (
+    <div
+      data-testid="viewer"
+      data-profile={profile}
+      data-joints={JSON.stringify(jointTargets)}
+    />
+  ),
+}));
+
+const { CombinedPage } = await import('./CombinedPage');
+
+function makeHand(overrides = {}) {
+  return {
+    status: 'disconnected',
+    connected: false,
+    lastError: '',
+    joints: [],
+    health: [],
+    watchdogTrip: null,
+    clearWatchdogTrip: vi.fn(),
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    wsUrl: 'ws://127.0.0.1:9003',
+    ops: {
+      scan: vi.fn().mockResolvedValue({}),
+      enable: vi.fn().mockResolvedValue({}),
+      disable: vi.fn().mockResolvedValue({}),
+      jog: vi.fn().mockResolvedValue({}),
+      pos: vi.fn().mockResolvedValue({}),
+      errorStatus: vi.fn().mockResolvedValue({}),
+      reboot: vi.fn().mockResolvedValue({}),
+    },
+    ...overrides,
+  };
+}
+
+const viewerJoints = () => JSON.parse(screen.getByTestId('viewer').dataset.joints);
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+describe('CombinedPage', () => {
+  it('drives the combined profile with every arm and hand joint', () => {
+    useHandGateway.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+    expect(screen.getByTestId('viewer').dataset.profile).toBe('clankers');
+    const joints = viewerJoints();
+    expect(Object.keys(joints)).toHaveLength(22); // 6 arm + 16 hand
+    expect(joints).toHaveProperty('joint1');
+    expect(joints).toHaveProperty('index_mcp_flex');
+  });
+
+  it('warns that the adapter mount is provisional', () => {
+    useHandGateway.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+    expect(screen.getByText(/provisional/i)).toBeTruthy();
+  });
+
+  it('blocks whole-hand pos while the joint map is unconfirmed', () => {
+    // Mirrors the gateway's own rule; the UI must not offer a command that will be refused.
+    expect(robotsConfig.hand.calibrated).toBe(false);
+    useHandGateway.mockReturnValue(makeHand({ connected: true }));
+    render(<CombinedPage />);
+    expect(screen.getByRole('button', { name: /send hand pose/i }).disabled).toBe(true);
+  });
+
+  it('jogs a single joint through the gateway, which is the bring-up path', async () => {
+    const hand = makeHand({ connected: true });
+    useHandGateway.mockReturnValue(hand);
+    render(<CombinedPage />);
+    fireEvent.click(screen.getByLabelText('jog index_mcp_flex positive'));
+    await waitFor(() => expect(hand.ops.jog).toHaveBeenCalled());
+    const [servoId, delta] = hand.ops.jog.mock.calls[0];
+    expect(servoId).toBe(1);
+    expect(delta).toBeCloseTo(robotsConfig.hand.safety.max_step_rad);
+  });
+
+  it('mirrors live gateway positions into the model', async () => {
+    useHandGateway.mockReturnValue(
+      makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.4 }] }),
+    );
+    render(<CombinedPage />);
+    await waitFor(() => expect(viewerJoints().index_mcp_flex).toBeCloseTo(0.4));
+  });
+
+  it('stops mirroring when the operator turns it off', async () => {
+    useHandGateway.mockReturnValue(
+      makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.4 }] }),
+    );
+    render(<CombinedPage />);
+    await waitFor(() => expect(viewerJoints().index_mcp_flex).toBeCloseTo(0.4));
+    fireEvent.click(screen.getByLabelText('mirror live positions'));
+    fireEvent.change(screen.getByLabelText('index_mcp_flex'), { target: { value: '0.1' } });
+    expect(viewerJoints().index_mcp_flex).toBeCloseTo(0.1);
+  });
+
+  it('poses the model from an arm slider', () => {
+    useHandGateway.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+    fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '0.75' } });
+    expect(viewerJoints().joint1).toBeCloseTo(0.75);
+  });
+
+  it('clamps an arm slider to its robots.yaml limit', () => {
+    useHandGateway.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+    const j1 = robotsConfig.arm.joints.find((j) => j.name === 'joint1');
+    fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '99' } });
+    expect(viewerJoints().joint1).toBeCloseTo(j1.limit.max);
+  });
+
+  it('curls the hand without touching the arm', () => {
+    useHandGateway.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+    fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '0.5' } });
+    fireEvent.click(screen.getByRole('button', { name: /curl hand/i }));
+    const joints = viewerJoints();
+    expect(joints.joint1).toBeCloseTo(0.5);
+    expect(joints.index_mcp_flex).not.toBe(0);
+  });
+});

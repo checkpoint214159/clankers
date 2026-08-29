@@ -66,7 +66,7 @@ hand:
   current_limit_ma: 300 # keep 300 for plastic-gear XL330s until bring-up proves headroom is needed
   temperature_limit_c: 70 # XC330 default shutdown threshold; do not raise
   poll:
-    state_hz: 50 # pos/vel/current sync read (≤500 Hz possible; USB degrades above)
+    state_hz: 1 # pos/vel/current sync read (≤500 Hz possible; USB degrades above)
     health_hz: 1 # temp/voltage
   joints:
     # canonical = index in dexmanip canonical_pose / sim obs-action vectors.
@@ -91,6 +91,37 @@ hand:
     max_step_rad: 0.15 # per-command position step clamp
     heartbeat_interval_s: 0.5 # commanding clients must send heartbeat at this rate
     watchdog_multiplier: 4 # torque off after 4 missed heartbeat intervals (3-5x convention)
+
+# --- adapter -------------------------------------------------------------------------
+# Custom plate joining the arm tool flange to the LEAP hand (adapter_v5.stl, authored in
+# millimetres -- hence mesh_scale). Geometry read off the STL 2026-08-29:
+#   arm side  (z=0 face):  4 x O7.05 through-holes on a 35x35 square (O49.5 bolt circle)
+#                          + O14 central bore, all centred on the STL origin -> the STL
+#                          origin IS the flange axis, and z=0 is the mating face.
+#   hand side (z=26 face): 6 x O6.2 on a O27 bolt circle, also centred on the origin, so
+#                          the hand mounts coaxial with the wrist.
+# link6's own mesh runs z=[-0.5, 9.0] mm in its frame, so its flange face is at z=+9 mm.
+adapter:
+  mesh: adapter_v5.stl
+  mesh_scale: 0.001 # STL is in mm, URDF is in m
+  link_name: adapter_link
+  hand_link_prefix: hand_
+  hand_root_link: palm_lower
+  # PROVISIONAL, like the hand joint map: the flange side is measured, but the hand side
+  # assumes the palm's largest flat face (z=+11.28 mm in the palm_lower link frame, normal
+  # +Z) is its mounting face, centred on the wrist axis, with yaw clocking picked as 0.
+  # The 6-hole ring allows 60 deg increments -- adjust hand_mount.rpy[2] if the real build
+  # is clocked differently. Nothing downstream hard-codes these numbers; they live here.
+  calibrated: false
+  arm_mount:
+    parent: link6
+    xyz: [0.0, 0.0, 0.009] # link6 flange face
+    rpy: [0.0, 0.0, 0.0]
+  hand_mount:
+    # rpy roll=pi turns the palm over so its mount face lies on the adapter's z=26 face and
+    # the fingers point away from the wrist; xyz then lands that face centre on the axis.
+    xyz: [0.0601, -0.03724, 0.03728]
+    rpy: [3.141592654, 0.0, 0.0]
 
 control:
   # Sim-derived starting points (dexmanip LeapHandRot) — validate on hardware before trusting.

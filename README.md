@@ -27,6 +27,9 @@ cd apps/studio && npm install && npm test && npm run dev   # studio on :18110
 # what's plugged in? (read-only: enumerates adapters + broadcast-pings the hand bus)
 uv run clankers-detect
 
+# combined arm + adapter + LEAP hand model (regenerate after editing `adapter:` in robots.yaml):
+uv run clankers-build-urdf     # -> apps/studio/public/resources/clankers/, "Combined" page in the studio
+
 # hand gateway (mock bus, no hardware needed):
 uv run clankers-hand-gateway --mock
 # task runner against a fake robot:

@@ -35,6 +35,7 @@ clankers-task-runner = "clankers.tasks.server:main"
 clankers-export-config = "clankers.config.export:main"
 clankers-teleop-demo = "clankers.teleop.demo:main"
 clankers-detect = "clankers.detect:main"
+clankers-build-urdf = "clankers.urdf.build:main"
 
 [build-system]
 requires = ["hatchling"]

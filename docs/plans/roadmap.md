@@ -21,7 +21,12 @@ gated on the physical rig (see [bringup.md](bringup.md)).
 ## Later (deferred by design)
 - Debug-UI power features: control-table editor, EEPROM backup/restore, firmware-recovery flow,
   packet monitor, bus-health panel (RTT/latency-timer/error counters), temp/current trend alerts.
-- Combined arm+hand URDF (blocked on adapter) → studio viewer + rerun scene.
+- Combined arm+hand URDF: **studio viewer DONE** (2026-08-29) — `clankers-build-urdf`
+  composes arm + adapter_v5 + LEAP into one tree with robots.yaml joint names, and the
+  studio's Combined page drives all 22 joints. The flange mount is measured off the STL;
+  the hand-side placement is provisional until checked against the physical build
+  (`adapter.calibrated`). Still to do: rerun scene, and the arm half of the page is
+  preview-only (the Robot Arm page owns the motorbridge bus).
 - Cameras (`observation.images.*` reserved). First rung DONE: `clankers-teleop-demo` — webcam
   MediaPipe joint-space retargeting through the hand gateway. Upgrade path: dex-retargeting
   (IK-style fingertip-vector optimization) wrapped as a `lerobot_teleoperator_*` plugin, so

@@ -8,6 +8,7 @@ export const es = {
   lang_es: 'Español',
   page_general: 'General',
   page_robot_arm: 'Brazo reBot',
+  page_combined: 'Conjunto',
   page_leap_hand: 'Mano LEAP',
   page_tasks: 'Tareas',
   help_show: 'Ayuda',

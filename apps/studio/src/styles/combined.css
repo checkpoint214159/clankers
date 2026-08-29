@@ -1,0 +1,73 @@
+/* Combined page: arm + adapter + LEAP hand in one tree. */
+
+.combinedPage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.combinedViewerCard {
+  min-height: 460px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.combinedJointRow {
+  display: grid;
+  grid-template-columns: 150px 1fr 72px 96px;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.combinedJointRow input[type='range'] {
+  width: 100%;
+}
+
+.combinedJointName {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.combinedJointValue {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.combinedJointLive {
+  font-size: 11px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.combinedJointWithJog {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.combinedFingerGroup {
+  margin-top: 10px;
+}
+
+.combinedFingerGroup h4 {
+  margin: 6px 0 2px;
+  text-transform: capitalize;
+  opacity: 0.8;
+}
+
+.warnBanner {
+  border-left: 3px solid #d08a2c;
+  background: rgba(208, 138, 44, 0.09);
+  padding: 8px 10px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.okChip {
+  font-size: 12px;
+  color: #2f9e44;
+}

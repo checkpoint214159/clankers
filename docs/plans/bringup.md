@@ -38,7 +38,12 @@
 - [ ] If it fails, capture the exact error before considering a custom bus.
 
 ## 4. Combo (blocked on adapter)
-- [ ] Adapter URDF → combined URDF; set `arm.urdf.end_effector_link`.
+- [x] Adapter URDF → combined URDF (2026-08-29): `uv run clankers-build-urdf` writes
+      `apps/studio/public/resources/clankers/`; mount geometry and its one assumption are
+      documented in that directory's PROVENANCE.md.
+- [ ] Confirm the hand-side mount against the physical assembly (clocking about the
+      6-hole ring), then set `adapter.calibrated: true`.
+- [ ] Set `arm.urdf.end_effector_link`.
 - [ ] 6-joint no-gripper arm config (`arm.lerobot.use_gripper: false`).
 - [ ] TTL daisy-chain check: sustained multi-finger load with the hand powered through the
       adapter run — watch far-end servo voltage/current for sag.

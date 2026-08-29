@@ -8,6 +8,7 @@ export const zh = {
   lang_es: 'Español',
   page_general: '通用模式',
   page_robot_arm: '机械臂模式',
+  page_combined: '整机',
   page_leap_hand: 'LEAP 灵巧手',
   page_tasks: '任务',
   help_show: '帮助',
