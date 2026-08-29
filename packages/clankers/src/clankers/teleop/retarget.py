@@ -5,18 +5,19 @@ Landmark layout is MediaPipe Hands' 21 points, shape (21, 3):
 middle 9-12; ring 13-16; pinky 17-20. Angles are scale-invariant, so normalized
 image coordinates work as well as metric ones.
 
-Finger mapping (see docs/glossary.md — robots.yaml names inherit the dexmanip empirical
-labelling, where the three straight fingers are called index/thumb/middle and the
-OPPOSABLE finger is called "ring"):
+Finger mapping is the identity — human finger to the robot finger of the same name:
 
-    human index  -> robot "index"   (straight)
-    human middle -> robot "thumb"   (straight, middle position — naming quirk)
-    human ring   -> robot "middle"  (straight)
-    human thumb  -> robot "ring"    (opposable)
+    human index  -> robot index   (straight)
+    human middle -> robot middle  (straight)
+    human ring   -> robot ring    (straight)
+    human thumb  -> robot thumb   (opposable)
     human pinky  -> unused (LEAP has no pinky)
 
-PROVISIONAL like everything hand-side: bring-up (docs/plans/bringup.md) may flip signs or
-reassign fingers; adjust FINGER_MAP / gains there, not by rewriting the math.
+It was not always written that way. robots.yaml used to carry a finger relabelling
+(canonical 4-7 called "thumb", 8-11 "middle", 12-15 "ring"), and this module compensated by
+mapping the human thumb onto the robot's "ring_*" joints. Hardware confirmed on 2026-08-29
+that 12-15 really is the thumb, robots.yaml was corrected, and the compensation collapsed
+into the identity above. If this ever stops being the identity, suspect the labels first.
 """
 
 from __future__ import annotations
@@ -31,10 +32,10 @@ from clankers.config import HandConfig, load_robots
 # human finger name -> (robot finger prefix, landmark chain (mcp, pip, dip, tip))
 FINGER_MAP: dict[str, tuple[str, tuple[int, int, int, int]]] = {
     "index": ("index", (5, 6, 7, 8)),
-    "middle": ("thumb", (9, 10, 11, 12)),
-    "ring": ("middle", (13, 14, 15, 16)),
+    "middle": ("middle", (9, 10, 11, 12)),
+    "ring": ("ring", (13, 14, 15, 16)),
 }
-THUMB_CHAIN = (1, 2, 3, 4)  # human thumb CMC, MCP, IP, TIP -> robot "ring" (opposable)
+THUMB_CHAIN = (1, 2, 3, 4)  # human thumb CMC, MCP, IP, TIP -> robot thumb (opposable)
 
 WRIST = 0
 MIDDLE_MCP = 9
@@ -94,10 +95,10 @@ def raw_angles(lm: np.ndarray) -> dict[str, float]:
     # Opposition/splay of the whole thumb relative to the palm axis drives the base
     # rotation; the three flexion knuckles map onto mcp/pip, with dip coupled to pip
     # (the human thumb has one fewer joint than the robot finger).
-    out["ring_base_rot"] = abs(_signed_angle_in_plane(lm[mcp] - lm[WRIST], palm_axis, normal))
-    out["ring_mcp_flex"] = _angle(lm[mcp] - lm[cmc], lm[ip] - lm[mcp])
-    out["ring_pip"] = _angle(lm[ip] - lm[mcp], lm[tip] - lm[ip])
-    out["ring_dip"] = 0.7 * out["ring_pip"]
+    out["thumb_base_rot"] = abs(_signed_angle_in_plane(lm[mcp] - lm[WRIST], palm_axis, normal))
+    out["thumb_mcp_flex"] = _angle(lm[mcp] - lm[cmc], lm[ip] - lm[mcp])
+    out["thumb_pip"] = _angle(lm[ip] - lm[mcp], lm[tip] - lm[ip])
+    out["thumb_dip"] = 0.7 * out["thumb_pip"]
     return out
 
 
@@ -127,7 +128,7 @@ class Retargeter:
         self._neutral = raw_angles(lm)
 
     def _gain_for(self, name: str) -> float:
-        if name.startswith("ring_"):
+        if name.startswith("thumb_"):
             return self.thumb_gain
         if name.endswith("_mcp_side"):
             return self.side_gain

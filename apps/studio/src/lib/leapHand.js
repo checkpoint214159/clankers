@@ -3,7 +3,9 @@
 // it is PROVISIONAL until bring-up confirms servo IDs/signs (see hand.calibrated in the config).
 import { faultDisplay } from './faults';
 
-export const FINGER_ORDER = ['index', 'thumb', 'middle', 'ring'];
+// Anatomical order. (It used to read index/thumb/middle/ring, which mirrored the old
+// mislabelling of servos 4-15 rather than any display preference.)
+export const FINGER_ORDER = ['index', 'middle', 'ring', 'thumb'];
 
 export const TEMP_WARN_C = 55;
 export const TEMP_DANGER_C = 65;

@@ -120,11 +120,15 @@ async def test_pos_clamps_target_past_the_joint_limit() -> None:
 
 
 async def test_pos_refused_while_uncalibrated_but_jog_still_works() -> None:
+    # The guard is about an unconfirmed joint map, not about whatever robots.yaml happens to
+    # say today, so the uncalibrated config is constructed here rather than read from disk —
+    # otherwise confirming the hand on the bench would silently delete this coverage.
+    uncalibrated = dataclasses.replace(CFG.hand, calibrated=False)
     async with (
-        _gateway(allow_uncalibrated=False) as (server, service, _bus),
+        _gateway(allow_uncalibrated=False, hand_cfg=uncalibrated) as (server, service, _bus),
         websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
     ):
-        assert service.hand_cfg.calibrated is False  # robots.yaml: PROVISIONAL until bring-up
+        assert service.hand_cfg.calibrated is False
         client = _WsClient(ws)
         await client.call("enable")
         joint = service.hand_cfg.joints[2]
@@ -136,6 +140,21 @@ async def test_pos_refused_while_uncalibrated_but_jog_still_works() -> None:
         jog_resp = await client.call("jog", servo_id=joint.servo_id, delta_rad=0.05)
         assert jog_resp["ok"] is True
         assert jog_resp["data"]["target"] == pytest.approx(0.05)
+
+
+async def test_pos_accepted_once_the_joint_map_is_confirmed() -> None:
+    """The other half of the guard: with `calibrated: true` a whole-hand pose goes through."""
+    calibrated = dataclasses.replace(CFG.hand, calibrated=True)
+    async with (
+        _gateway(allow_uncalibrated=False, hand_cfg=calibrated) as (server, service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        await client.call("enable")
+        joint = service.hand_cfg.joints[2]
+        resp = await client.call("pos", targets={joint.name: 0.1})
+        assert resp["ok"] is True, resp.get("error")
+        assert resp["data"]["targets"][joint.name] == pytest.approx(0.1)
 
 
 async def test_jog_clips_to_max_step_and_joint_limit() -> None:

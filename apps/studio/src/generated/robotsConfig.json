@@ -174,9 +174,9 @@
     "vendor": "dynamixel",
     "protocol": 2.0,
     "transport": "u2d2",
-    "baud": 4000000,
+    "baud": 1000000,
     "revision": "unconfirmed",
-    "calibrated": false,
+    "calibrated": true,
     "motor_model": "xl330-m288",
     "current_limit_ma": 300,
     "temperature_limit_c": 70,
@@ -228,46 +228,6 @@
       {
         "canonical": 4,
         "servo_id": 4,
-        "name": "thumb_mcp_side",
-        "finger": "thumb",
-        "limit": {
-          "min": -1.047,
-          "max": 1.047
-        }
-      },
-      {
-        "canonical": 5,
-        "servo_id": 5,
-        "name": "thumb_mcp_flex",
-        "finger": "thumb",
-        "limit": {
-          "min": -0.314,
-          "max": 2.23
-        }
-      },
-      {
-        "canonical": 6,
-        "servo_id": 6,
-        "name": "thumb_pip",
-        "finger": "thumb",
-        "limit": {
-          "min": -0.506,
-          "max": 1.885
-        }
-      },
-      {
-        "canonical": 7,
-        "servo_id": 7,
-        "name": "thumb_dip",
-        "finger": "thumb",
-        "limit": {
-          "min": -0.366,
-          "max": 2.042
-        }
-      },
-      {
-        "canonical": 8,
-        "servo_id": 8,
         "name": "middle_mcp_side",
         "finger": "middle",
         "limit": {
@@ -276,8 +236,8 @@
         }
       },
       {
-        "canonical": 9,
-        "servo_id": 9,
+        "canonical": 5,
+        "servo_id": 5,
         "name": "middle_mcp_flex",
         "finger": "middle",
         "limit": {
@@ -286,8 +246,8 @@
         }
       },
       {
-        "canonical": 10,
-        "servo_id": 10,
+        "canonical": 6,
+        "servo_id": 6,
         "name": "middle_pip",
         "finger": "middle",
         "limit": {
@@ -296,8 +256,8 @@
         }
       },
       {
-        "canonical": 11,
-        "servo_id": 11,
+        "canonical": 7,
+        "servo_id": 7,
         "name": "middle_dip",
         "finger": "middle",
         "limit": {
@@ -306,10 +266,50 @@
         }
       },
       {
+        "canonical": 8,
+        "servo_id": 8,
+        "name": "ring_mcp_side",
+        "finger": "ring",
+        "limit": {
+          "min": -1.047,
+          "max": 1.047
+        }
+      },
+      {
+        "canonical": 9,
+        "servo_id": 9,
+        "name": "ring_mcp_flex",
+        "finger": "ring",
+        "limit": {
+          "min": -0.314,
+          "max": 2.23
+        }
+      },
+      {
+        "canonical": 10,
+        "servo_id": 10,
+        "name": "ring_pip",
+        "finger": "ring",
+        "limit": {
+          "min": -0.506,
+          "max": 1.885
+        }
+      },
+      {
+        "canonical": 11,
+        "servo_id": 11,
+        "name": "ring_dip",
+        "finger": "ring",
+        "limit": {
+          "min": -0.366,
+          "max": 2.042
+        }
+      },
+      {
         "canonical": 12,
         "servo_id": 12,
-        "name": "ring_base_rot",
-        "finger": "ring",
+        "name": "thumb_base_rot",
+        "finger": "thumb",
         "limit": {
           "min": -0.349,
           "max": 2.094
@@ -318,8 +318,8 @@
       {
         "canonical": 13,
         "servo_id": 13,
-        "name": "ring_mcp_flex",
-        "finger": "ring",
+        "name": "thumb_mcp_flex",
+        "finger": "thumb",
         "limit": {
           "min": -0.47,
           "max": 2.443
@@ -328,8 +328,8 @@
       {
         "canonical": 14,
         "servo_id": 14,
-        "name": "ring_pip",
-        "finger": "ring",
+        "name": "thumb_pip",
+        "finger": "thumb",
         "limit": {
           "min": -1.2,
           "max": 1.9
@@ -338,8 +338,8 @@
       {
         "canonical": 15,
         "servo_id": 15,
-        "name": "ring_dip",
-        "finger": "ring",
+        "name": "thumb_dip",
+        "finger": "thumb",
         "limit": {
           "min": -1.34,
           "max": 1.88
@@ -359,6 +359,7 @@
     "hand_link_prefix": "hand_",
     "hand_root_link": "palm_lower",
     "calibrated": false,
+    "keep_gripper": false,
     "arm_mount": {
       "parent": "link6",
       "xyz": [

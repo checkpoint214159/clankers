@@ -21,38 +21,38 @@ poses:
     index_mcp_flex: 0.0
     index_pip: 0.0
     index_dip: 0.0
-    thumb_mcp_side: 0.0
-    thumb_mcp_flex: 0.0
-    thumb_pip: 0.0
-    thumb_dip: 0.0
     middle_mcp_side: 0.0
     middle_mcp_flex: 0.0
     middle_pip: 0.0
     middle_dip: 0.0
-    ring_base_rot: 0.0
+    ring_mcp_side: 0.0
     ring_mcp_flex: 0.0
     ring_pip: 0.0
     ring_dip: 0.0
+    thumb_base_rot: 0.0
+    thumb_mcp_flex: 0.0
+    thumb_pip: 0.0
+    thumb_dip: 0.0
 
   # Hand fully open: flex joints (mcp_flex/pip/dip, all 12 of them) at their minimum;
-  # the four side-to-side/rotation joints (mcp_side x3, ring_base_rot) centered at 0.
+  # the four side-to-side/rotation joints (mcp_side x3, thumb_base_rot) centered at 0.
   hand_open:
     index_mcp_side: 0.0
     index_mcp_flex: -0.314
     index_pip: -0.506
     index_dip: -0.366
-    thumb_mcp_side: 0.0
-    thumb_mcp_flex: -0.314
-    thumb_pip: -0.506
-    thumb_dip: -0.366
     middle_mcp_side: 0.0
     middle_mcp_flex: -0.314
     middle_pip: -0.506
     middle_dip: -0.366
-    ring_base_rot: 0.0
-    ring_mcp_flex: -0.47
-    ring_pip: -1.2
-    ring_dip: -1.34
+    ring_mcp_side: 0.0
+    ring_mcp_flex: -0.314
+    ring_pip: -0.506
+    ring_dip: -0.366
+    thumb_base_rot: 0.0
+    thumb_mcp_flex: -0.47
+    thumb_pip: -1.2
+    thumb_dip: -1.34
 
   # Hand curled: flex joints at ~60% of their max; side-to-side joints stay centered.
   hand_curl:
@@ -60,18 +60,18 @@ poses:
     index_mcp_flex: 1.338
     index_pip: 1.131
     index_dip: 1.2252
-    thumb_mcp_side: 0.0
-    thumb_mcp_flex: 1.338
-    thumb_pip: 1.131
-    thumb_dip: 1.2252
     middle_mcp_side: 0.0
     middle_mcp_flex: 1.338
     middle_pip: 1.131
     middle_dip: 1.2252
-    ring_base_rot: 0.0
-    ring_mcp_flex: 1.4658
-    ring_pip: 1.14
-    ring_dip: 1.128
+    ring_mcp_side: 0.0
+    ring_mcp_flex: 1.338
+    ring_pip: 1.131
+    ring_dip: 1.2252
+    thumb_base_rot: 0.0
+    thumb_mcp_flex: 1.4658
+    thumb_pip: 1.14
+    thumb_dip: 1.128
 
 skills:
   wave_fingers:

@@ -2,6 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import robotsConfig from '../generated/robotsConfig.json';
 import { useHandGateway } from '../hooks/useHandGateway';
 
 vi.mock('../hooks/useHandGateway', () => ({
@@ -42,18 +43,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const PROVISIONAL = !robotsConfig.hand.calibrated;
+
 describe('LeapHandPage', () => {
-  it('renders the provisional-map banner and all 16 joint cards across 4 fingers', () => {
+  it('shows the provisional banner only while the map is unconfirmed, and 16 joint cards', () => {
     useHandGateway.mockReturnValue(makeHand());
     render(<LeapHandPage />);
 
-    expect(screen.getByText(/Provisional joint map/)).toBeTruthy();
+    // Tied to robots.yaml rather than to a fixed expectation: the banner is a statement
+    // about the config, and confirming the hand on the bench should not fail a UI test.
+    expect(Boolean(screen.queryByText(/Provisional joint map/))).toBe(PROVISIONAL);
     expect(screen.getByText('index')).toBeTruthy();
     expect(screen.getByText('thumb')).toBeTruthy();
     expect(screen.getByText('middle')).toBeTruthy();
     expect(screen.getByText('ring')).toBeTruthy();
     expect(screen.getByText('index_mcp_side')).toBeTruthy();
-    expect(screen.getByText('ring_dip')).toBeTruthy();
+    expect(screen.getByText('thumb_dip')).toBeTruthy();
     expect(screen.getAllByText(/servo \d+/)).toHaveLength(16);
   });
 
@@ -65,12 +70,14 @@ describe('LeapHandPage', () => {
     expect(screen.getByRole('button', { name: 'Disconnect' }).disabled).toBe(false);
   });
 
-  it('disables pose presets while the joint map is provisional', () => {
+  it('gates pose presets on the joint map being confirmed', () => {
     useHandGateway.mockReturnValue(makeHand({ status: 'connected', connected: true }));
     render(<LeapHandPage />);
 
-    expect(screen.getByRole('button', { name: 'Open Hand' }).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: 'Curl Hand' }).disabled).toBe(true);
+    // Presets drive all 16 servos at once, so they are offered only when robots.yaml says
+    // the servo->joint map is confirmed. The gateway refuses `pos` otherwise regardless.
+    expect(screen.getByRole('button', { name: 'Open Hand' }).disabled).toBe(PROVISIONAL);
+    expect(screen.getByRole('button', { name: 'Curl Hand' }).disabled).toBe(PROVISIONAL);
   });
 
   it('shows live position, temperature severity, and fault chips for a joint', () => {

@@ -69,12 +69,15 @@ describe('CombinedPage', () => {
     expect(screen.getByText(/provisional/i)).toBeTruthy();
   });
 
-  it('blocks whole-hand pos while the joint map is unconfirmed', () => {
-    // Mirrors the gateway's own rule; the UI must not offer a command that will be refused.
-    expect(robotsConfig.hand.calibrated).toBe(false);
+  it('gates whole-hand pos on the joint map being confirmed', () => {
+    // Mirrors the gateway's own rule: it refuses `pos` unless robots.yaml says the
+    // servo->joint map is confirmed, so the UI must not offer a command that gets refused.
+    // Tied to the config rather than a fixed value — confirming the hand on the bench
+    // should flip this button, not fail this test.
     useHandGateway.mockReturnValue(makeHand({ connected: true }));
     render(<CombinedPage />);
-    expect(screen.getByRole('button', { name: /send hand pose/i }).disabled).toBe(true);
+    const btn = screen.getByRole('button', { name: /send hand pose/i });
+    expect(btn.disabled).toBe(!robotsConfig.hand.calibrated);
   });
 
   it('jogs a single joint through the gateway, which is the bring-up path', async () => {

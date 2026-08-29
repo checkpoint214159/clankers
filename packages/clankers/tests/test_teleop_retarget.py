@@ -41,7 +41,7 @@ def test_curl_increases_flexion_monotonically() -> None:
         prev_total = total
     # A strong curl should meaningfully flex every straight-finger PIP joint.
     strong = r(hand_landmarks(curl=1.1))
-    for name in ("index_pip", "thumb_pip", "middle_pip"):
+    for name in ("index_pip", "middle_pip", "ring_pip"):
         assert strong[name] > 0.5, (name, strong[name])
 
 

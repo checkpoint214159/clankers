@@ -53,12 +53,19 @@ hand:
   # its handshake or the connect ping finds nothing.
   baud: 1000000
   revision: unconfirmed # V1 vs V2 — decides current-limit policy below
-  # PROVISIONAL: joint order/semantics ported from
-  # dexterousmanipulation/docs/leap_hand_joint_map.md (sim-URDF canonical_pose order).
-  # Signs are a working hypothesis; servo_id assignments assume the LEAP convention
-  # servo_id == canonical index — MUST be confirmed at torque-off bring-up
-  # (docs/plans/bringup.md) before any torque-on motion trusts this table.
-  calibrated: false
+  # CONFIRMED ON HARDWARE 2026-08-29 by jogging each group from the studio and watching
+  # which finger actually moved:
+  #     servos 0-3 = index, 4-7 = middle, 8-11 = ring, 12-15 = thumb.
+  # The labels here used to be wrong for everything except the index: 4-7 were called
+  # "thumb", 8-11 "middle" and 12-15 "ring", on the belief that URDF link names were
+  # misleading. They were not — the LEAP URDF's 12-15 chain is literally
+  # pip_4 -> thumb_pip -> thumb_dip -> thumb_fingertip, and the hardware agrees.
+  # Limits and canonical indices were never in doubt (they match the LEAP URDF exactly);
+  # only the human-facing names moved.
+  # Still not swept independently: the direction sign of each individual joint. Motion
+  # looked correct during the check, and per-command travel is bounded by
+  # safety.max_step_rad, but a single reversed joint would not have been obvious.
+  calibrated: true
   # Confirmed by clankers-detect broadcast ping 2026-08-24: all 16 servos report
   # xl330-m288 (natively in lerobot's table — the xc330-m288 local patch is now unused
   # but harmless). XL330 = plastic gears: keep the conservative current limit.
@@ -69,24 +76,24 @@ hand:
     state_hz: 1 # pos/vel/current sync read (≤500 Hz possible; USB degrades above)
     health_hz: 1 # temp/voltage
   joints:
-    # canonical = index in dexmanip canonical_pose / sim obs-action vectors.
-    # finger labels are the dexmanip empirical labelling (URDF link names are misleading).
+    # canonical = index in dexmanip canonical_pose / sim obs-action vectors, and equals
+    # servo_id. Finger labels are anatomical and hardware-confirmed (see note above).
     - { canonical: 0, servo_id: 0, name: index_mcp_side, finger: index, limit: { min: -1.047, max: 1.047 } }
     - { canonical: 1, servo_id: 1, name: index_mcp_flex, finger: index, limit: { min: -0.314, max: 2.230 } }
     - { canonical: 2, servo_id: 2, name: index_pip, finger: index, limit: { min: -0.506, max: 1.885 } }
     - { canonical: 3, servo_id: 3, name: index_dip, finger: index, limit: { min: -0.366, max: 2.042 } }
-    - { canonical: 4, servo_id: 4, name: thumb_mcp_side, finger: thumb, limit: { min: -1.047, max: 1.047 } }
-    - { canonical: 5, servo_id: 5, name: thumb_mcp_flex, finger: thumb, limit: { min: -0.314, max: 2.230 } }
-    - { canonical: 6, servo_id: 6, name: thumb_pip, finger: thumb, limit: { min: -0.506, max: 1.885 } }
-    - { canonical: 7, servo_id: 7, name: thumb_dip, finger: thumb, limit: { min: -0.366, max: 2.042 } }
-    - { canonical: 8, servo_id: 8, name: middle_mcp_side, finger: middle, limit: { min: -1.047, max: 1.047 } }
-    - { canonical: 9, servo_id: 9, name: middle_mcp_flex, finger: middle, limit: { min: -0.314, max: 2.230 } }
-    - { canonical: 10, servo_id: 10, name: middle_pip, finger: middle, limit: { min: -0.506, max: 1.885 } }
-    - { canonical: 11, servo_id: 11, name: middle_dip, finger: middle, limit: { min: -0.366, max: 2.042 } }
-    - { canonical: 12, servo_id: 12, name: ring_base_rot, finger: ring, limit: { min: -0.349, max: 2.094 } }
-    - { canonical: 13, servo_id: 13, name: ring_mcp_flex, finger: ring, limit: { min: -0.470, max: 2.443 } }
-    - { canonical: 14, servo_id: 14, name: ring_pip, finger: ring, limit: { min: -1.200, max: 1.900 } }
-    - { canonical: 15, servo_id: 15, name: ring_dip, finger: ring, limit: { min: -1.340, max: 1.880 } }
+    - { canonical: 4, servo_id: 4, name: middle_mcp_side, finger: middle, limit: { min: -1.047, max: 1.047 } }
+    - { canonical: 5, servo_id: 5, name: middle_mcp_flex, finger: middle, limit: { min: -0.314, max: 2.230 } }
+    - { canonical: 6, servo_id: 6, name: middle_pip, finger: middle, limit: { min: -0.506, max: 1.885 } }
+    - { canonical: 7, servo_id: 7, name: middle_dip, finger: middle, limit: { min: -0.366, max: 2.042 } }
+    - { canonical: 8, servo_id: 8, name: ring_mcp_side, finger: ring, limit: { min: -1.047, max: 1.047 } }
+    - { canonical: 9, servo_id: 9, name: ring_mcp_flex, finger: ring, limit: { min: -0.314, max: 2.230 } }
+    - { canonical: 10, servo_id: 10, name: ring_pip, finger: ring, limit: { min: -0.506, max: 1.885 } }
+    - { canonical: 11, servo_id: 11, name: ring_dip, finger: ring, limit: { min: -0.366, max: 2.042 } }
+    - { canonical: 12, servo_id: 12, name: thumb_base_rot, finger: thumb, limit: { min: -0.349, max: 2.094 } }
+    - { canonical: 13, servo_id: 13, name: thumb_mcp_flex, finger: thumb, limit: { min: -0.470, max: 2.443 } }
+    - { canonical: 14, servo_id: 14, name: thumb_pip, finger: thumb, limit: { min: -1.200, max: 1.900 } }
+    - { canonical: 15, servo_id: 15, name: thumb_dip, finger: thumb, limit: { min: -1.340, max: 1.880 } }
   safety:
     max_step_rad: 0.15 # per-command position step clamp
     heartbeat_interval_s: 0.5 # commanding clients must send heartbeat at this rate

@@ -35,20 +35,25 @@ describe('buildHandModel', () => {
       const canonicals = model.byFinger[finger].map((j) => j.canonical);
       expect(canonicals).toEqual([...canonicals].sort((a, b) => a - b));
     }
+    // Confirmed on hardware 2026-08-29 by jogging each group and watching which finger
+    // moved. These four lines used to read index/thumb/middle/ring in this order, which was
+    // the mislabelling, not the wiring.
     expect(model.byFinger.index.map((j) => j.canonical)).toEqual([0, 1, 2, 3]);
-    expect(model.byFinger.thumb.map((j) => j.canonical)).toEqual([4, 5, 6, 7]);
-    expect(model.byFinger.middle.map((j) => j.canonical)).toEqual([8, 9, 10, 11]);
-    expect(model.byFinger.ring.map((j) => j.canonical)).toEqual([12, 13, 14, 15]);
+    expect(model.byFinger.middle.map((j) => j.canonical)).toEqual([4, 5, 6, 7]);
+    expect(model.byFinger.ring.map((j) => j.canonical)).toEqual([8, 9, 10, 11]);
+    expect(model.byFinger.thumb.map((j) => j.canonical)).toEqual([12, 13, 14, 15]);
   });
 
   it('indexes joints by servo id, name, and canonical index', () => {
     expect(model.byServoId.get(0).name).toBe('index_mcp_side');
-    expect(model.byName.get('thumb_dip').servoId).toBe(7);
-    expect(model.byCanonical.get(15).name).toBe('ring_dip');
+    expect(model.byName.get('middle_dip').servoId).toBe(7);
+    expect(model.byCanonical.get(15).name).toBe('thumb_dip');
   });
 
-  it('surfaces the provisional-map flag and safety config verbatim', () => {
-    expect(model.calibrated).toBe(false);
+  it('surfaces the calibrated flag and safety config verbatim', () => {
+    // "verbatim" is the contract: mirror robots.yaml rather than assert today's value, so
+    // confirming (or un-confirming) the hand does not need a test edit.
+    expect(model.calibrated).toBe(robotsConfig.hand.calibrated);
     expect(model.safety.max_step_rad).toBeCloseTo(0.15);
     expect(model.safety.watchdog_multiplier).toBe(4);
     expect(model.currentLimitMa).toBe(300);

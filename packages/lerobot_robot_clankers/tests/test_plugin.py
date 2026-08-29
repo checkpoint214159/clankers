@@ -19,6 +19,7 @@ from lerobot_robot_clankers import (
     LeapHand,
     LeapHandConfig,
 )
+from lerobot_robot_clankers import leap_hand as leap_hand_module
 from lerobot_robot_clankers.leap_hand import (
     _CENTER_TICK,
     HandNotCalibratedError,
@@ -68,11 +69,20 @@ def test_leap_hand_connect_get_observation_disconnect():
     assert not hand.is_connected
 
 
-def test_send_action_uncalibrated_guard_raises():
-    # robots.yaml currently has hand.calibrated: false, so the default (no
-    # allow_uncalibrated override) must refuse to move the hand.
-    assert HAND_CFG.calibrated is False
+def test_send_action_uncalibrated_guard_raises(monkeypatch):
+    # The guard is about an unconfirmed joint map, not about whatever robots.yaml says
+    # today: patch the config the plugin reads so that confirming the hand on the bench
+    # cannot silently delete this coverage.
+    import dataclasses
+
+    from clankers.config import load_robots as _load
+
+    full = _load()
+    patched = dataclasses.replace(full, hand=dataclasses.replace(full.hand, calibrated=False))
+    monkeypatch.setattr(leap_hand_module, "load_robots", lambda: patched)
+
     hand = make_hand(allow_uncalibrated=False)
+    assert hand._hand_cfg.calibrated is False
     hand.connect()
     try:
         with pytest.raises(HandNotCalibratedError):
