@@ -55,8 +55,11 @@ hand:
   # servo_id == canonical index — MUST be confirmed at torque-off bring-up
   # (docs/plans/bringup.md) before any torque-on motion trusts this table.
   calibrated: false
-  motor_model: xc330-m288 # confirm against actual build sheet
-  current_limit_ma: 300 # V1 may raise toward 550; V2 docs forbid raising. Keep 300 until revision confirmed.
+  # Confirmed by clankers-detect broadcast ping 2026-08-24: all 16 servos report
+  # xl330-m288 (natively in lerobot's table — the xc330-m288 local patch is now unused
+  # but harmless). XL330 = plastic gears: keep the conservative current limit.
+  motor_model: xl330-m288
+  current_limit_ma: 300 # keep 300 for plastic-gear XL330s until bring-up proves headroom is needed
   temperature_limit_c: 70 # XC330 default shutdown threshold; do not raise
   poll:
     state_hz: 50 # pos/vel/current sync read (≤500 Hz possible; USB degrades above)

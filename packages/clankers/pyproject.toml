@@ -19,11 +19,19 @@ hardware = [
 viz = [
     "rerun-sdk>=0.30,<0.31",
 ]
+# Webcam teleop demo (clankers-teleop-demo). Retarget math itself is pure numpy;
+# these are only needed for live camera tracking.
+teleop = [
+    "mediapipe>=0.10.14",
+    "opencv-python>=4.10",
+]
 
 [project.scripts]
 clankers-hand-gateway = "clankers.hand_gateway.server:main"
 clankers-task-runner = "clankers.tasks.server:main"
 clankers-export-config = "clankers.config.export:main"
+clankers-teleop-demo = "clankers.teleop.demo:main"
+clankers-detect = "clankers.detect:main"
 
 [build-system]
 requires = ["hatchling"]

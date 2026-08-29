@@ -6,9 +6,10 @@
 - [ ] `uv sync --extra hardware` (pulls lerobot + dynamixel-sdk).
 
 ## 1. Hand — torque-off identification (safe)
-- [ ] Plug U2D2 only. `clankers-hand-gateway --mock` off; real port, scan at 4M then baud-sweep.
-- [ ] Expect 16 servos. Resolve duplicate IDs BEFORE wiring changes (gateway `scan` reports dupes).
-- [ ] Assign servo IDs 0–15. Keep torque OFF.
+- [x] Detection (2026-08-24, `clankers-detect`, both adapters on one hub): **all 16 servos
+      answered at 4M baud, IDs 0–15, model XL330-M288** (not the assumed XC330 — robots.yaml
+      updated). Arm scan same session: joints 0x01–0x06 present; gripper 0x07 no reply.
+- [x] Servo IDs 0–15 already assigned. Keep torque OFF.
 - [ ] Move each finger joint by hand; record servo_id ↔ semantic joint ↔ sign in the studio hand page.
 - [ ] Init the dexmanip submodule; read `leap_hand_rot.py` ~lines 990–1000 for
       `sim_to_real_indices` / `real_to_sim_indices`; reconcile with observed mapping.

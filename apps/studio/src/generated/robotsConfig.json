@@ -176,7 +176,7 @@
     "transport": "u2d2",
     "revision": "unconfirmed",
     "calibrated": false,
-    "motor_model": "xc330-m288",
+    "motor_model": "xl330-m288",
     "current_limit_ma": 300,
     "temperature_limit_c": 70,
     "poll": {

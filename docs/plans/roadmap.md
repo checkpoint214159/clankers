@@ -22,7 +22,10 @@ gated on the physical rig (see [bringup.md](bringup.md)).
 - Debug-UI power features: control-table editor, EEPROM backup/restore, firmware-recovery flow,
   packet monitor, bus-health panel (RTT/latency-timer/error counters), temp/current trend alerts.
 - Combined arm+hand URDF (blocked on adapter) → studio viewer + rerun scene.
-- Cameras (`observation.images.*` reserved) → MediaPipe + dex-retargeting teleoperator plugin.
+- Cameras (`observation.images.*` reserved). First rung DONE: `clankers-teleop-demo` — webcam
+  MediaPipe joint-space retargeting through the hand gateway. Upgrade path: dex-retargeting
+  (IK-style fingertip-vector optimization) wrapped as a `lerobot_teleoperator_*` plugin, so
+  teleop sessions can feed `lerobot-record` directly.
 - Cartesian moves: pink differential IK + reachability grading (waypoint_validate-style, see
   motorbridge-studio `/simu` protocol as the template).
 - Grasp library (BODex-precomputed / hand-authored; SpringGrasp fallback), FoundationPose/SAM-6D,

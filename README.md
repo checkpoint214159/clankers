@@ -24,10 +24,18 @@ uv sync --extra hardware --extra viz   # + lerobot/dynamixel/rerun for real use
 uv run pytest                    # python tests
 cd apps/studio && npm install && npm test && npm run dev   # studio on :18110
 
+# what's plugged in? (read-only: enumerates adapters + broadcast-pings the hand bus)
+uv run clankers-detect
+
 # hand gateway (mock bus, no hardware needed):
 uv run clankers-hand-gateway --mock
 # task runner against a fake robot:
 uv run clankers-task-runner --fake
+
+# webcam hand teleop (uv sync --extra teleop first; gateway must allow `pos` pre-calibration):
+uv run clankers-hand-gateway --mock --allow-uncalibrated
+uv run clankers-teleop-demo            # camera + preview; press c with an open hand, q quits
+uv run clankers-teleop-demo --synthetic  # no camera: open<->curl wave
 ```
 
 Hardware bring-up: read `docs/plans/bringup.md` first — the hand joint map is provisional
