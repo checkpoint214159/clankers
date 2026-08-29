@@ -47,7 +47,11 @@ hand:
   name: leap_hand
   vendor: dynamixel
   protocol: 2.0
-  transport: u2d2 # /dev/tty.usbserial-*; default 4M baud on LEAP builds — confirm at scan
+  transport: u2d2 # /dev/tty.usbserial-*
+  # Confirmed by clankers-detect broadcast ping 2026-08-24: all 16 servos answer here.
+  # lerobot's DynamixelMotorsBus defaults to 1M, so the gateway MUST set this before
+  # its handshake or the connect ping finds nothing.
+  baud: 4000000
   revision: unconfirmed # V1 vs V2 — decides current-limit policy below
   # PROVISIONAL: joint order/semantics ported from
   # dexterousmanipulation/docs/leap_hand_joint_map.md (sim-URDF canonical_pose order).

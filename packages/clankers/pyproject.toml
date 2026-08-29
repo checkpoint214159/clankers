@@ -15,6 +15,9 @@ dependencies = [
 hardware = [
     "lerobot>=0.6",
     "dynamixel-sdk>=3.7",
+    # lerobot's MotorsBus.__init__ require_package()s deepdiff but does not depend on it;
+    # without it every real-bus construction dies at import time.
+    "deepdiff>=8",
 ]
 viz = [
     "rerun-sdk>=0.30,<0.31",

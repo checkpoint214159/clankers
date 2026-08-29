@@ -10,6 +10,17 @@
       answered at 4M baud, IDs 0–15, model XL330-M288** (not the assumed XC330 — robots.yaml
       updated). Arm scan same session: joints 0x01–0x06 present; gripper 0x07 no reply.
 - [x] Servo IDs 0–15 already assigned. Keep torque OFF.
+- [ ] **BLOCKER — bus is not reliable at the far end of the chain.** Re-running
+      `clankers-detect` (now 10 ping rounds, 2026-08-29) shows id 15 `ring_dip` answering
+      0/10 and id 14 `ring_pip` 4/10, while ids 0–13 answer every round. The one-shot probe
+      on 2026-08-24 caught a lucky complete round and called the bus healthy — hence the
+      `--repeat` default. This breaks more than pings: lerobot `sync_read` addresses all 16
+      servos at once, so a single dropout fails the whole read and the gateway cannot serve
+      telemetry. Fix physically before anything below: reseat the TTL connectors from id 13
+      outward, measure 5 V at the last servo under load (chain-end sag is the usual cause),
+      try a shorter/known-good lead, and consider swapping ids 14/15 with a known-good servo
+      to tell a bad cable from a bad servo. Re-run `clankers-detect` until it reports
+      16/16 every round.
 - [ ] Move each finger joint by hand; record servo_id ↔ semantic joint ↔ sign in the studio hand page.
 - [ ] Init the dexmanip submodule; read `leap_hand_rot.py` ~lines 990–1000 for
       `sim_to_real_indices` / `real_to_sim_indices`; reconcile with observed mapping.

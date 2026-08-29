@@ -64,6 +64,7 @@ class HandConfig:
     vendor: str
     protocol: str
     transport: str
+    baud: int
     revision: str
     calibrated: bool
     motor_model: str
@@ -131,6 +132,7 @@ def load_robots(path: Path | None = None) -> RobotsConfig:
         vendor=hand_raw["vendor"],
         protocol=str(hand_raw["protocol"]),
         transport=hand_raw["transport"],
+        baud=int(hand_raw["baud"]),
         revision=hand_raw["revision"],
         calibrated=bool(hand_raw["calibrated"]),
         motor_model=hand_raw["motor_model"],

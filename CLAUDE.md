@@ -1,7 +1,7 @@
 # clankers
 
 Operations stack for a Seeed reBot B601-DM 6-DOF arm (Damiao motors, dm-serial) + LEAP hand
-(16 Dynamixel XC330 over U2D2), to be combined via a custom adapter (URDF pending).
+(16 Dynamixel XL330-M288 over U2D2), to be combined via a custom adapter (URDF pending).
 
 Training lives in the separate `dexterousmanipulation` repo (Python 3.8 / IsaacGym — frozen
 toolchain). This repo never imports from it; it only consumes exported artifacts (joint maps,

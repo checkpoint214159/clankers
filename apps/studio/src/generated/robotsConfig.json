@@ -174,6 +174,7 @@
     "vendor": "dynamixel",
     "protocol": 2.0,
     "transport": "u2d2",
+    "baud": 4000000,
     "revision": "unconfirmed",
     "calibrated": false,
     "motor_model": "xl330-m288",

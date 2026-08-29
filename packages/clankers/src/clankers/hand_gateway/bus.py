@@ -194,7 +194,7 @@ class LerobotDynamixelBus(HandBus):
         self,
         port: str,
         hand_cfg: HandConfig | None = None,
-        baudrate: int | None = None,
+        baudrate: int | None = None,  # None -> hand_cfg.baud (robots.yaml)
     ) -> None:
         self._port = port
         self._hand_cfg = hand_cfg or load_robots().hand
@@ -225,16 +225,47 @@ class LerobotDynamixelBus(HandBus):
             for joint in self._hand_cfg.joints
         }
         bus = DynamixelMotorsBus(port=self._port, motors=motors)
-        bus.connect()
-        if self._baudrate is not None:
-            bus.set_baudrate(self._baudrate)
+        baud = self._baudrate if self._baudrate is not None else self._hand_cfg.baud
+        # Open the port WITHOUT lerobot's handshake. Its handshake pings every expected
+        # servo at lerobot's own default baud (1M), but LEAP builds run the bus at 4M, so
+        # the ping finds nothing and connect() fails before we ever get to set_baudrate.
+        # Set the real baud first, then do the roll call ourselves with a better error.
+        bus.connect(handshake=False)
+        bus.set_baudrate(baud)
         self._bus = bus
         self._ticks_per_rev = bus.model_resolution_table[model]
+        self._verify_roll_call(baud)
 
-    def disconnect(self) -> None:
+    def _verify_roll_call(self, baud: int) -> None:
+        """Ping every servo robots.yaml expects; fail loudly naming whoever is missing.
+
+        Replaces lerobot's handshake (skipped in `connect()` for the baud reason above).
+        Read-only: broadcast ping writes nothing and leaves torque untouched.
+        """
+        bus = self._require_connected()
+        found = set(bus.broadcast_ping(raise_on_error=False) or {})
+        missing = sorted(set(self._name_by_id) - found)
+        if missing:
+            # Torque was never enabled on this path, and lerobot's default disconnect writes
+            # Torque_Enable to all 16 — on a bus that is already not answering that write
+            # raises and would mask the far more useful roll-call error below.
+            self.disconnect(disable_torque=False)
+            raise ConnectionError(
+                f"hand bus roll call failed at {baud} baud on {self._port}: "
+                f"{len(missing)} of {len(self._name_by_id)} expected servos did not answer "
+                f"(servo_ids {missing}). Checklist: hand 5V PSU on? TTL chain fully seated? "
+                f"Run `uv run clankers-detect` to see what the bus actually reports."
+            )
+
+    def disconnect(self, *, disable_torque: bool = True) -> None:
+        """Close the port. lerobot's disconnect WRITES Torque_Enable to every motor first,
+        which is the safe default on a healthy bus but raises on a bus that is not answering
+        — pass disable_torque=False when nothing was ever energized."""
         if self._bus is not None:
-            self._bus.disconnect()
-            self._bus = None
+            try:
+                self._bus.disconnect(disable_torque=disable_torque)
+            finally:
+                self._bus = None
 
     def _require_connected(self) -> Any:
         if self._bus is None:

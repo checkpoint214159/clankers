@@ -211,6 +211,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--mock", action="store_true", help="use the in-process MockBus")
     parser.add_argument("--serial-port", default=None, help="U2D2 serial device; required without --mock")
     parser.add_argument("--port", type=int, default=None, help="override ports.hand_gateway_ws")
+    parser.add_argument(
+        "--baud", type=int, default=None, help="override hand.baud from robots.yaml (real bus only)"
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument(
         "--allow-uncalibrated",
@@ -231,7 +234,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         if not args.serial_port:
             parser.error("--serial-port is required without --mock")
-        bus = LerobotDynamixelBus(args.serial_port, cfg.hand)
+        bus = LerobotDynamixelBus(args.serial_port, cfg.hand, baudrate=args.baud)
 
     bus.connect()
     try:
