@@ -1,7 +1,12 @@
 import React from 'react';
 import robotsConfig from '../generated/robotsConfig.json';
 import { useHandGatewayContext } from '../hooks/useHandGatewayContext';
-import { useConnectionContext, useRobotArmContext } from '../hooks/useMotorStudioContext';
+import {
+  useConnectionContext,
+  useControlContext,
+  useRobotArmContext,
+} from '../hooks/useMotorStudioContext';
+import { useCoalescedSender } from '../hooks/useCoalescedSender';
 import { ArmUrdfViewer } from './ArmUrdfViewer';
 import { CollapsibleSection } from './CollapsibleSection';
 import { GatewayConnections } from './GatewayConnections';
@@ -19,6 +24,7 @@ import '../styles/combined.css';
 
 const MODEL = buildCombinedModel(robotsConfig);
 const JOG_STEP_RAD = Number(MODEL.hand.safety?.max_step_rad) || 0.05;
+const ARM_NAMES = new Set(MODEL.arm.map((j) => j.name));
 
 function JointSlider({ joint, value, onChange, disabled, live }) {
   return (
@@ -53,6 +59,7 @@ export function CombinedPage() {
   // process per bus (ADR-0002), and two owners of the Damiao link would fight.
   const arm = useRobotArmContext();
   const armConn = useConnectionContext();
+  const { controlMotor, patchControl } = useControlContext();
 
   const [targets, setTargets] = React.useState(() => zeroTargets(MODEL));
   const [mirrorLive, setMirrorLive] = React.useState(true);
@@ -60,19 +67,84 @@ export function CombinedPage() {
   const [note, setNote] = React.useState('');
   const [armOpen, setArmOpen] = React.useState(false);
   const [handOpen, setHandOpen] = React.useState(false);
+  const [armLive, setArmLive] = React.useState(false);
+  const [handLive, setHandLive] = React.useState(false);
+
+  // Mirror of `targets` for event handlers, which need the value they are about to set
+  // without waiting for a re-render to queue it onto the bus.
+  const targetsRef = React.useRef(targets);
+  targetsRef.current = targets;
+  const lastArmSentRef = React.useRef({});
 
   const armReady = Boolean(armConn?.connected) && !arm?.armBulkBusy;
   const handReady = hand.connected && !busy;
   const canPoseHand = handReady && MODEL.hand.calibrated;
 
+  // Live driving and live mirroring pull the same sliders in opposite directions -- the
+  // operator drags, the hand reports where it actually got to, the slider jumps back. While
+  // the hand is being driven live, measurement yields to intent.
   React.useEffect(() => {
-    if (!mirrorLive || !hand.connected) return;
+    if (!mirrorLive || handLive || !hand.connected) return;
     setTargets((prev) => applyLiveHandPositions(prev, MODEL, hand.joints));
-  }, [mirrorLive, hand.connected, hand.joints]);
+  }, [mirrorLive, handLive, hand.connected, hand.joints]);
 
-  const setJoint = React.useCallback((name, value) => {
-    setTargets((prev) => ({ ...prev, [name]: value }));
+  const handTargetsFrom = React.useCallback((source) => {
+    const out = {};
+    for (const j of MODEL.hand.joints) out[j.name] = clampToLimit(j, source?.[j.name] ?? 0);
+    return out;
   }, []);
+
+  const armRowByName = React.useMemo(() => {
+    const out = {};
+    for (const row of arm?.robotArmJointRows || []) {
+      const joint = MODEL.arm.find((a) => a.joint === Number(row?.joint));
+      if (joint) out[joint.name] = row;
+    }
+    return out;
+  }, [arm?.robotArmJointRows]);
+
+  /**
+   * Command the six arm joints. Unchanged joints are skipped unless `force`, so a live drag
+   * of one slider does not re-send the other five on every tick of a shared serial bus.
+   */
+  const sendArmTargets = React.useCallback(
+    async (next, { force = false } = {}) => {
+      for (const joint of MODEL.arm) {
+        const row = armRowByName[joint.name];
+        if (!row?.hit) continue;
+        // MIT mode takes torque/impedance commands, not a position target.
+        if (String(row?.control?.mode) === 'mit') continue;
+        const target = clampArmJoint(joint, next[joint.name]);
+        const last = lastArmSentRef.current[joint.name];
+        if (!force && Number.isFinite(last) && Math.abs(last - target) < 1e-4) continue;
+        lastArmSentRef.current[joint.name] = target;
+        patchControl?.(row.key, { target });
+        await controlMotor(row.hit, 'move', { target });
+      }
+    },
+    [armRowByName, controlMotor, patchControl],
+  );
+
+  const armSender = useCoalescedSender(
+    React.useCallback((next) => sendArmTargets(next), [sendArmTargets]),
+  );
+  const handSender = useCoalescedSender(
+    React.useCallback((next) => hand.ops.pos(handTargetsFrom(next)), [hand.ops, handTargetsFrom]),
+  );
+
+  const setJoint = React.useCallback(
+    (name, value) => {
+      const next = { ...targetsRef.current, [name]: value };
+      targetsRef.current = next;
+      setTargets(next);
+      if (ARM_NAMES.has(name)) {
+        if (armLive && armReady) armSender.queue(next);
+      } else if (handLive && canPoseHand) {
+        handSender.queue(next);
+      }
+    },
+    [armLive, armReady, handLive, canPoseHand, armSender, handSender],
+  );
 
   const liveByName = React.useMemo(() => {
     const out = {};
@@ -100,11 +172,6 @@ export function CombinedPage() {
     setTargets((prev) => ({ ...prev, ...buildPresetTargets(MODEL.hand, preset) }));
   }, []);
 
-  const handTargetsFrom = React.useCallback((source) => {
-    const out = {};
-    for (const j of MODEL.hand.joints) out[j.name] = clampToLimit(j, source?.[j.name] ?? 0);
-    return out;
-  }, []);
 
   /**
    * Send a full-system target map to the hardware.
@@ -122,12 +189,15 @@ export function CombinedPage() {
       else skipped.push(hand.connected ? 'hand (map unconfirmed)' : 'hand (gateway offline)');
 
       await run(`${label} (${ran.join(' + ') || 'nothing'})`, async () => {
-        if (armReady) await arm.resetPoseRobotArm();
+        // Send the pose that was asked for. This used to call resetPoseRobotArm(), which
+        // always drives the arm to zero -- fine for "go to zero pose", wrong for every
+        // saved pose, which would have silently zeroed the arm instead.
+        if (armReady) await sendArmTargets(next, { force: true });
         if (canPoseHand) await hand.ops.pos(handTargetsFrom(next));
       });
       if (skipped.length) setNote((n) => `${n} — skipped ${skipped.join(', ')}`);
     },
-    [armReady, canPoseHand, arm, hand.ops, hand.connected, handTargetsFrom, run],
+    [armReady, canPoseHand, sendArmTargets, hand.ops, hand.connected, handTargetsFrom, run],
   );
 
   // Zero all = go to the zero pose on the hardware. It does not touch any encoder zero
@@ -211,6 +281,25 @@ export function CombinedPage() {
           <button onClick={() => run('arm disable all', arm.disableAllRobotArm)} disabled={!armReady || busy}>
             Disable all
           </button>
+          <label title="Send each slider change to the arm as you drag">
+            <input
+              type="checkbox"
+              checked={armLive}
+              disabled={!armReady}
+              onChange={(e) => {
+                setArmLive(e.target.checked);
+                if (!e.target.checked) armSender.stop();
+              }}
+              aria-label="live arm"
+            />{' '}
+            live
+          </label>
+          <button
+            onClick={() => run('send arm pose', () => sendArmTargets(targetsRef.current, { force: true }))}
+            disabled={!armReady || busy}
+          >
+            Send arm pose
+          </button>
         </div>
         {MODEL.arm.map((j) => (
           <JointSlider
@@ -221,8 +310,14 @@ export function CombinedPage() {
           />
         ))}
         <p className="muted">
-          These sliders pose the model. For live per-joint motion, mechanical zeroing and motor
-          parameters, open the arm controls below.
+          {armLive
+            ? 'Live: each slider change is sent to the arm as you drag, newest target wins.'
+            : 'Manual: sliders pose the model only until you press Send arm pose.'}{' '}
+          Looking for <strong>Set Mechanical Zero</strong> (rewrites the encoder reference — not
+          the same as Go to zero pose)?{' '}
+          <button className="ghostBtn small" onClick={() => setArmOpen(true)}>
+            Open arm controls
+          </button>
         </p>
       </section>
 
@@ -246,10 +341,29 @@ export function CombinedPage() {
           <button onClick={() => run('hand disable all', () => hand.ops.disable())} disabled={!handReady}>
             Disable all
           </button>
+          <label title="Send the whole hand pose as you drag">
+            <input
+              type="checkbox"
+              checked={handLive}
+              disabled={!canPoseHand}
+              onChange={(e) => {
+                setHandLive(e.target.checked);
+                if (!e.target.checked) handSender.stop();
+              }}
+              aria-label="live hand"
+            />{' '}
+            live
+          </label>
           <button onClick={sendHandPose} disabled={!canPoseHand}>
             Send hand pose
           </button>
         </div>
+        {handLive && mirrorLive && (
+          <p className="muted">
+            Live driving pauses position mirroring — otherwise the measured position fights the
+            slider you are dragging.
+          </p>
+        )}
 
         {MODEL.hand.fingers.map((finger) => (
           <div key={finger} className="combinedFingerGroup">

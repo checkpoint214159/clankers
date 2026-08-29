@@ -10,6 +10,7 @@ vi.mock('../hooks/useHandGatewayContext', () => ({ useHandGatewayContext: vi.fn(
 vi.mock('../hooks/useMotorStudioContext', () => ({
   useRobotArmContext: vi.fn(),
   useConnectionContext: vi.fn(),
+  useControlContext: vi.fn(),
 }));
 // The viewer pulls in three.js + WebGL, which jsdom has no business running; the page's
 // contract with it is just "gets a joint map and the clankers profile".
@@ -30,7 +31,9 @@ vi.mock('./ArmUrdfViewer', () => ({
   ),
 }));
 
-const { useConnectionContext, useRobotArmContext } = await import('../hooks/useMotorStudioContext');
+const { useConnectionContext, useControlContext, useRobotArmContext } = await import(
+  '../hooks/useMotorStudioContext'
+);
 const { CombinedPage } = await import('./CombinedPage');
 
 function makeArm(overrides = {}) {
@@ -43,12 +46,29 @@ function makeArm(overrides = {}) {
   };
 }
 
+// Six joint rows, matching robots.yaml's joint1..joint6, as the shared session would supply.
+function armRows() {
+  return [1, 2, 3, 4, 5, 6].map((joint) => ({
+    joint,
+    key: `damiao:${joint}`,
+    hit: { esc_id: joint, vendor: 'damiao' },
+    control: { mode: 'pos_vel', target: 0 },
+  }));
+}
+
 function useArm(armOverrides = {}, connected = true) {
-  const armCtx = makeArm(armOverrides);
+  const armCtx = makeArm({ robotArmJointRows: armRows(), ...armOverrides });
   useRobotArmContext.mockReturnValue(armCtx);
   useConnectionContext.mockReturnValue({ connected });
+  useControlContext.mockReturnValue({
+    controlMotor: controlMotorMock,
+    patchControl: patchControlMock,
+  });
   return armCtx;
 }
+
+const controlMotorMock = vi.fn().mockResolvedValue(true);
+const patchControlMock = vi.fn();
 
 function makeHand(overrides = {}) {
   return {
@@ -174,14 +194,20 @@ describe('CombinedPage', () => {
     expect(joints.index_mcp_flex).not.toBe(0);
   });
 
-  it('resets both halves from one press, through the shared arm session', async () => {
-    const armCtx = useArm({}, true);
+  it('sends every joint to zero from one press, through the shared arm session', async () => {
+    useArm({}, true);
     const hand = makeHand({ connected: true });
     useHandGatewayContext.mockReturnValue(hand);
     render(<CombinedPage />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Go to zero pose' }));
-    await waitFor(() => expect(armCtx.resetPoseRobotArm).toHaveBeenCalledTimes(1));
+    // Commands the pose rather than calling resetPoseRobotArm, so one path serves both
+    // "go to zero" and "send this saved pose".
+    await waitFor(() => expect(controlMotorMock).toHaveBeenCalledTimes(6));
+    for (const call of controlMotorMock.mock.calls) {
+      expect(call[1]).toBe('move');
+      expect(call[2].target).toBeCloseTo(0);
+    }
     // The hand half only goes out if robots.yaml says the joint map is confirmed.
     if (robotsConfig.hand.calibrated) {
       await waitFor(() => expect(hand.ops.pos).toHaveBeenCalledTimes(1));
@@ -192,14 +218,14 @@ describe('CombinedPage', () => {
   });
 
   it('does not touch the arm when its gateway is disconnected', async () => {
-    const armCtx = useArm({}, false);
+    useArm({}, false);
     const hand = makeHand({ connected: true });
     useHandGatewayContext.mockReturnValue(hand);
     render(<CombinedPage />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Go to zero pose' }));
     await waitFor(() => expect(screen.getByText(/skipped .*arm/i)).toBeTruthy());
-    expect(armCtx.resetPoseRobotArm).not.toHaveBeenCalled();
+    expect(controlMotorMock).not.toHaveBeenCalled();
   });
 
   it('offers no reset at all when neither side is ready', () => {
@@ -268,5 +294,77 @@ describe('CombinedPage', () => {
     const buttons = screen.getAllByRole('button', { name: /^enable all$/i });
     fireEvent.click(buttons[buttons.length - 1]);
     await waitFor(() => expect(hand.ops.enable).toHaveBeenCalled());
+  });
+
+  it('does not move the arm from a slider while live is off', () => {
+    useArm({}, true);
+    useHandGatewayContext.mockReturnValue(makeHand({ connected: true }));
+    render(<CombinedPage />);
+
+    fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '0.3' } });
+    expect(controlMotorMock).not.toHaveBeenCalled();
+    expect(viewerJoints().joint1).toBeCloseTo(0.3);
+  });
+
+  it('streams slider changes to the arm once live is on', async () => {
+    useArm({}, true);
+    useHandGatewayContext.mockReturnValue(makeHand({ connected: true }));
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getByLabelText('live arm'));
+    fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '0.3' } });
+    // The first live send establishes a baseline for all six joints; later drags only
+    // re-send what actually changed.
+    await waitFor(() => expect(controlMotorMock).toHaveBeenCalled());
+    const j1 = controlMotorMock.mock.calls.find((c) => c[0].esc_id === 1);
+    expect(j1[1]).toBe('move');
+    expect(j1[2].target).toBeCloseTo(0.3);
+  });
+
+  it('sends the arm pose on demand while live is off', async () => {
+    useArm({}, true);
+    useHandGatewayContext.mockReturnValue(makeHand({ connected: true }));
+    render(<CombinedPage />);
+
+    fireEvent.change(screen.getByLabelText('joint2'), { target: { value: '-0.4' } });
+    fireEvent.click(screen.getByRole('button', { name: /send arm pose/i }));
+    await waitFor(() => expect(controlMotorMock).toHaveBeenCalledTimes(6));
+    const j2 = controlMotorMock.mock.calls.find((c) => c[0].esc_id === 2);
+    expect(j2[2].target).toBeCloseTo(-0.4);
+  });
+
+  it('streams the hand pose only when hand live is on', async () => {
+    useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGatewayContext.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    fireEvent.change(screen.getByLabelText('index_mcp_flex'), { target: { value: '0.2' } });
+    expect(hand.ops.pos).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByLabelText('live hand'));
+    fireEvent.change(screen.getByLabelText('index_mcp_flex'), { target: { value: '0.25' } });
+    await waitFor(() => expect(hand.ops.pos).toHaveBeenCalled());
+  });
+
+  it('pauses mirroring while the hand is driven live, so the two do not fight', async () => {
+    useArm({}, false);
+    useHandGatewayContext.mockReturnValue(
+      makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.4 }] }),
+    );
+    render(<CombinedPage />);
+    await waitFor(() => expect(viewerJoints().index_mcp_flex).toBeCloseTo(0.4));
+
+    fireEvent.click(screen.getByLabelText('live hand'));
+    fireEvent.change(screen.getByLabelText('index_mcp_flex'), { target: { value: '0.1' } });
+    // Without the pause the next mirror tick would snap this straight back to 0.4.
+    expect(viewerJoints().index_mcp_flex).toBeCloseTo(0.1);
+  });
+
+  it('cannot drive the arm live while its gateway is down', () => {
+    useArm({}, false);
+    useHandGatewayContext.mockReturnValue(makeHand({ connected: true }));
+    render(<CombinedPage />);
+    expect(screen.getByLabelText('live arm').disabled).toBe(true);
   });
 });
