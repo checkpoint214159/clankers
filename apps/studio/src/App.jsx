@@ -2,14 +2,10 @@ import React from 'react';
 import { BrandWatermark } from './components/BrandWatermark';
 import { HeaderBar } from './components/HeaderBar';
 import { QuickMenu } from './components/QuickMenu';
-import { ConnectionPanel } from './components/ConnectionPanel';
-import { ScanWorkspace } from './components/ScanWorkspace';
-import { MotorSection } from './components/MotorSection';
 import { StateLogsPanel } from './components/StateLogsPanel';
-import { RobotArmPage } from './components/RobotArmPage';
-import { LeapHandPage } from './components/LeapHandPage';
 import { TasksPage } from './components/TasksPage';
 import { CombinedPage } from './components/CombinedPage';
+import { HandGatewayProvider } from './hooks/useHandGatewayContext';
 import { SimuPage } from './third_page';
 import { HelpCenterModal } from './components/HelpCenterModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -21,7 +17,7 @@ import appPackage from '../package.json';
 export default function App() {
   const { t } = useI18n();
   const studio = useMotorStudio();
-  const [page, setPage] = React.useState('general');
+  const [page, setPage] = React.useState('combined');
   const [helpOpen, setHelpOpen] = React.useState(false);
   const version = `v${appPackage.version}`;
 
@@ -43,6 +39,7 @@ export default function App() {
 
   return (
     <MotorStudioProvider value={studio}>
+      <HandGatewayProvider>
       <div className="app shell">
         <BrandWatermark />
         <HeaderBar />
@@ -51,15 +48,6 @@ export default function App() {
 
         <section className="card glass">
           <div className="row toolbar compactToolbar">
-            <button className={page === 'general' ? 'primary' : ''} onClick={() => setPage('general')}>
-              {t('page_general')}
-            </button>
-            <button className={page === 'robot_arm' ? 'primary' : ''} onClick={() => setPage('robot_arm')}>
-              {t('page_robot_arm')}
-            </button>
-            <button className={page === 'leap_hand' ? 'primary' : ''} onClick={() => setPage('leap_hand')}>
-              {t('page_leap_hand')}
-            </button>
             <button className={page === 'combined' ? 'primary' : ''} onClick={() => setPage('combined')}>
               {t('page_combined')}
             </button>
@@ -82,22 +70,15 @@ export default function App() {
           onConfirm={() => studio.scan?.closeConfirmDialog(true)}
         />
 
-        <ConnectionPanel />
-
-        {page === 'general' && (
-          <>
-            <ScanWorkspace />
-            <MotorSection />
-          </>
-        )}
-        {page === 'robot_arm' && <RobotArmPage />}
-        {page === 'leap_hand' && <LeapHandPage />}
+        {/* No global connection panel: the Combined page owns both gateways, so connecting
+            happens in one place instead of on top of every view. */}
         {page === 'combined' && <CombinedPage />}
         {page === 'tasks' && <TasksPage />}
 
         <StateLogsPanel />
         <div className="appFooterMeta">{version}</div>
       </div>
+      </HandGatewayProvider>
     </MotorStudioProvider>
   );
 }

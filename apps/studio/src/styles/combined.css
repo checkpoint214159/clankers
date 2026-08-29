@@ -71,3 +71,89 @@
   font-size: 12px;
   color: #2f9e44;
 }
+
+/* --- unified gateway panel ------------------------------------------------ */
+
+.gatewayRow {
+  display: grid;
+  grid-template-columns: 220px minmax(160px, 1fr) 130px auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.gatewayLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.gatewayLabel .muted {
+  font-size: 11px;
+}
+
+.connDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #8a8a8a;
+}
+.connDot--connected {
+  background: #2f9e44;
+}
+.connDot--connecting {
+  background: #d08a2c;
+}
+.connDot--disconnected {
+  background: #b03030;
+}
+
+/* --- pose library --------------------------------------------------------- */
+
+.poseLibrary .poseNote {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.poseList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.poseListItem {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.poseName {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.warnChip {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(208, 138, 44, 0.2);
+  color: #d08a2c;
+}
+
+@media (max-width: 900px) {
+  .gatewayRow,
+  .poseListItem,
+  .combinedJointRow {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}

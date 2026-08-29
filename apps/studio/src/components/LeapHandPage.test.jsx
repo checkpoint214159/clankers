@@ -3,10 +3,10 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import robotsConfig from '../generated/robotsConfig.json';
-import { useHandGateway } from '../hooks/useHandGateway';
+import { useHandGatewayContext } from '../hooks/useHandGatewayContext';
 
-vi.mock('../hooks/useHandGateway', () => ({
-  useHandGateway: vi.fn(),
+vi.mock('../hooks/useHandGatewayContext', () => ({
+  useHandGatewayContext: vi.fn(),
 }));
 
 // Imported after the mock so the component picks up the mocked hook.
@@ -45,9 +45,11 @@ afterEach(() => {
 
 const PROVISIONAL = !robotsConfig.hand.calibrated;
 
+// Connecting moved to GatewayConnections (one socket per bus, one place to press connect);
+// its coverage lives in GatewayConnections.test.jsx.
 describe('LeapHandPage', () => {
   it('shows the provisional banner only while the map is unconfirmed, and 16 joint cards', () => {
-    useHandGateway.mockReturnValue(makeHand());
+    useHandGatewayContext.mockReturnValue(makeHand());
     render(<LeapHandPage />);
 
     // Tied to robots.yaml rather than to a fixed expectation: the banner is a statement
@@ -62,16 +64,8 @@ describe('LeapHandPage', () => {
     expect(screen.getAllByText(/servo \d+/)).toHaveLength(16);
   });
 
-  it('disables the connect button once connected and enables disconnect', () => {
-    useHandGateway.mockReturnValue(makeHand({ status: 'connected', connected: true }));
-    render(<LeapHandPage />);
-
-    expect(screen.getByRole('button', { name: 'Connect' }).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: 'Disconnect' }).disabled).toBe(false);
-  });
-
   it('gates pose presets on the joint map being confirmed', () => {
-    useHandGateway.mockReturnValue(makeHand({ status: 'connected', connected: true }));
+    useHandGatewayContext.mockReturnValue(makeHand({ status: 'connected', connected: true }));
     render(<LeapHandPage />);
 
     // Presets drive all 16 servos at once, so they are offered only when robots.yaml says
@@ -87,7 +81,7 @@ describe('LeapHandPage', () => {
       joints: [{ servo_id: 2, name: 'index_pip', pos: 0.5, vel: 0.1, current_ma: 55 }],
       health: [{ servo_id: 2, temp_c: 68, voltage_v: 7.4, faults: ['overtemp_motor'] }],
     });
-    useHandGateway.mockReturnValue(hand);
+    useHandGatewayContext.mockReturnValue(hand);
     render(<LeapHandPage />);
 
     expect(screen.getByText('28.6°')).toBeTruthy();
@@ -98,7 +92,7 @@ describe('LeapHandPage', () => {
 
   it('calls jog with the configured step when a joint +/- button is clicked', () => {
     const hand = makeHand({ status: 'connected', connected: true });
-    useHandGateway.mockReturnValue(hand);
+    useHandGatewayContext.mockReturnValue(hand);
     render(<LeapHandPage />);
 
     const jogButtons = screen.getAllByTitle(/jog \+/)[0];
@@ -116,7 +110,7 @@ describe('LeapHandPage', () => {
         scan: vi.fn().mockResolvedValue({ hits: [{ servo_id: 3 }, { servo_id: 3 }], duplicates: [3] }),
       },
     });
-    useHandGateway.mockReturnValue(hand);
+    useHandGatewayContext.mockReturnValue(hand);
     render(<LeapHandPage />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Scan Bus' }));
@@ -127,7 +121,7 @@ describe('LeapHandPage', () => {
   });
 
   it('shows the watchdog-trip banner when the hook reports one tripped', () => {
-    useHandGateway.mockReturnValue(
+    useHandGatewayContext.mockReturnValue(
       makeHand({ watchdogTrip: { at: Date.now(), detail: { reason: 'heartbeat timeout' } } })
     );
     render(<LeapHandPage />);
@@ -135,12 +129,4 @@ describe('LeapHandPage', () => {
     expect(screen.getByText(/Watchdog tripped on the hand bus/)).toBeTruthy();
   });
 
-  it('calls connect/disconnect from the connection card', () => {
-    const hand = makeHand();
-    useHandGateway.mockReturnValue(hand);
-    render(<LeapHandPage />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
-    expect(hand.connect).toHaveBeenCalled();
-  });
 });

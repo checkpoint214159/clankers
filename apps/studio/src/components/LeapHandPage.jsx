@@ -1,6 +1,6 @@
 import React from 'react';
 import robotsConfig from '../generated/robotsConfig.json';
-import { useHandGateway } from '../hooks/useHandGateway';
+import { useHandGatewayContext } from '../hooks/useHandGatewayContext';
 import {
   buildHandModel,
   buildPresetTargets,
@@ -86,7 +86,9 @@ function JointCard({ joint, liveJoint, liveHealth, busy, connected, onJog }) {
 }
 
 export function LeapHandPage() {
-  const hand = useHandGateway();
+  // Shared instance: connecting lives in GatewayConnections, so this page must not
+  // open a second socket to the same bus.
+  const hand = useHandGatewayContext();
   const [scanResult, setScanResult] = React.useState(null);
   const [scanBusy, setScanBusy] = React.useState(false);
   const [busyServoIds, setBusyServoIds] = React.useState(() => new Set());
@@ -188,17 +190,13 @@ export function LeapHandPage() {
         </div>
       )}
 
+      {/* Connecting is not offered here — GatewayConnections owns both gateways so there is
+          one obvious place to do it, and one socket per bus. */}
       <div className="handConnCard">
         <span className={`handStatusDot ${hand.status}`} aria-hidden="true" />
         <span>{statusLabel(hand.status)}</span>
         <span className="handConnUrl">{hand.wsUrl}</span>
         <div className="row compactToolbar">
-          <button className="primary" disabled={hand.status !== 'disconnected'} onClick={hand.connect}>
-            Connect
-          </button>
-          <button disabled={hand.status === 'disconnected'} onClick={hand.disconnect}>
-            Disconnect
-          </button>
           <button className="ghostBtn" disabled={!hand.connected || scanBusy} onClick={handleScan}>
             {scanBusy ? 'Scanning…' : 'Scan Bus'}
           </button>

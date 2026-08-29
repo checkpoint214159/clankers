@@ -392,7 +392,10 @@ function mapJoint7ToGripperOpening(joint7Raw, { joint7Min, joint7Max, openingMax
   return t * openingMax;
 }
 
-export function RobotArmPage() {
+// `showViewer` is false when this renders inside the Combined page, which already shows the
+// full arm+adapter+hand model — two WebGL viewers of the same robot is confusing and costs a
+// second render loop.
+export function RobotArmPage({ showViewer = true }) {
   const { t } = useI18n();
   const { connected, canAction, sendCmd } = useConnectionContext();
   const { uiPrefs, setUiPref } = usePreferencesContext();
@@ -678,13 +681,15 @@ export function RobotArmPage() {
                                         runExclusive={live.runExclusive}
                                       />
 
-                                      <ArmSimPanel
-                                        jointTargets={jointTargets}
-                                        trail={trail}
-                                        gripperOpening={gripperOpening}
-                                        setGripperOpening={setGripperOpening}
-                                        profile={armVendorForProfile(robotArmModel)}
-                                      />
+                                      {showViewer && (
+                                        <ArmSimPanel
+                                          jointTargets={jointTargets}
+                                          trail={trail}
+                                          gripperOpening={gripperOpening}
+                                          setGripperOpening={setGripperOpening}
+                                          profile={armVendorForProfile(robotArmModel)}
+                                        />
+                                      )}
                                     </div>
                                   )}
                                 </LiveMoveScheduler>
