@@ -51,7 +51,7 @@ hand:
   # Confirmed by clankers-detect broadcast ping 2026-08-24: all 16 servos answer here.
   # lerobot's DynamixelMotorsBus defaults to 1M, so the gateway MUST set this before
   # its handshake or the connect ping finds nothing.
-  baud: 4000000
+  baud: 1000000
   revision: unconfirmed # V1 vs V2 — decides current-limit policy below
   # PROVISIONAL: joint order/semantics ported from
   # dexterousmanipulation/docs/leap_hand_joint_map.md (sim-URDF canonical_pose order).
@@ -113,6 +113,10 @@ adapter:
   # The 6-hole ring allows 60 deg increments -- adjust hand_mount.rpy[2] if the real build
   # is clocked differently. Nothing downstream hard-codes these numbers; they live here.
   calibrated: false
+  # The gripper and the adapter both bolt to the link6 flange, so they cannot coexist on
+  # the real robot. This drives the generated URDF; `arm.lerobot.use_gripper` is a separate
+  # decision about how many motors the arm gateway expects.
+  keep_gripper: false
   arm_mount:
     parent: link6
     xyz: [0.0, 0.0, 0.009] # link6 flange face

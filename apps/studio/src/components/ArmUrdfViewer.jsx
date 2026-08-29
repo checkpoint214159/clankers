@@ -57,6 +57,19 @@ function normalizeArm03JointTargets(map) {
   return next;
 }
 
+// The combined model has no gripper: the adapter occupies the same link6 flange, so
+// `adapter.keep_gripper` is false and the generated URDF omits those links entirely. Any
+// gripper key reaching this profile is a leftover from the shared control map, and naming a
+// joint the URDF does not have would be silently ignored -- drop them so the map stays honest.
+function normalizeClankersJointTargets(map) {
+  if (!map || typeof map !== 'object') return map;
+  const next = { ...map };
+  delete next.joint7;
+  delete next.gripper_joint1;
+  delete next.gripper_joint2;
+  return next;
+}
+
 // Per-profile model chain: package path, URDF path, mesh package name and the
 // joint-target normalizer that bridges the shared control map to this URDF.
 const PROFILE_MODELS = {
@@ -83,7 +96,7 @@ const PROFILE_MODELS = {
       reBot_B601_DM_with_gripper: ARM02_PACKAGE_PATH,
     },
     endEffectorLink: 'hand_palm_lower',
-    normalize: normalizeArm02JointTargets,
+    normalize: normalizeClankersJointTargets,
   },
 };
 const DEFAULT_CAMERA_POS = new THREE.Vector3(1.15, 0.95, 1.2);

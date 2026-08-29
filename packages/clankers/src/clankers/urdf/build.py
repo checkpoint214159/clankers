@@ -61,8 +61,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="override the arm URDF (default: arm.urdf.path from robots.yaml)")
     parser.add_argument("--out-dir", type=Path, default=None,
                         help=f"package directory to write (default: {DEFAULT_OUT_DIR})")
-    parser.add_argument("--no-gripper", action="store_true",
-                        help="drop the parallel gripper links/joints from the combined tree")
+    gripper = parser.add_mutually_exclusive_group()
+    gripper.add_argument("--no-gripper", dest="keep_gripper", action="store_false", default=None,
+                         help="drop the parallel gripper (default: adapter.keep_gripper)")
+    gripper.add_argument("--keep-gripper", dest="keep_gripper", action="store_true", default=None,
+                         help="keep the parallel gripper alongside the adapter")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
     logging.basicConfig(level=args.log_level, format="%(message)s")
@@ -95,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         tree = compose_urdf(
             cfg, arm_urdf, hand_urdf,
-            package=PACKAGE_NAME, keep_gripper=not args.no_gripper,
+            package=PACKAGE_NAME, keep_gripper=args.keep_gripper,
         )
     except ComposeError as exc:
         print(f"error: {exc}", file=sys.stderr)

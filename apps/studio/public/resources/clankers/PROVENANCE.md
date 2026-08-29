@@ -16,6 +16,13 @@ Everything here is produced by `uv run clankers-build-urdf`. Do not hand-edit
   LEAP Hand sim repo. Meshes are in metres. The 16 joints are renamed on the way in, from the
   LEAP URDF's `"0".."15"` to the semantic names in robots.yaml.
 
+## Gripper
+
+`adapter.keep_gripper` is `false`: the parallel gripper and the adapter bolt to the same
+link6 flange, so they cannot both be on the real robot. The generated URDF therefore has no
+`gripper_link` / `gripper_left` / `gripper_right`. That is a separate decision from
+`arm.lerobot.use_gripper`, which tells the arm gateway how many motors to expect.
+
 ## Mount geometry
 
 Measured off `adapter_v5.stl` on 2026-08-29:

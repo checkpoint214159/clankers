@@ -114,11 +114,21 @@ def test_arm_meshes_keep_their_own_package_hand_meshes_move() -> None:
     assert packages == {PACKAGE, CFG.arm.urdf["package"]}
 
 
-def test_gripper_can_be_dropped() -> None:
+def test_gripper_inclusion_follows_robots_yaml() -> None:
+    """The gripper and the adapter bolt to the same flange, so which one is in the model is a
+    fact about the robot, not a command-line mood."""
+    joints = _joints(_compose())
+    has_gripper = any("gripper" in n for n in joints)
+    assert has_gripper is bool(CFG.raw["adapter"]["keep_gripper"])
+
+
+def test_gripper_can_be_forced_either_way() -> None:
     kept = _joints(_compose(keep_gripper=True))
     dropped = _joints(_compose(keep_gripper=False))
     assert any("gripper" in n for n in kept)
     assert not any("gripper" in n for n in dropped)
+    # Dropping the gripper must not strand its parent: link6 still carries the adapter.
+    assert "adapter_mount" in dropped
 
 
 def test_missing_parent_link_is_a_clear_error(tmp_path: Path) -> None:
@@ -172,3 +182,6 @@ def test_generated_urdf_is_current_with_robots_yaml() -> None:
         want = _joints(fresh)[name].find("origin")
         assert got.get("xyz") == want.get("xyz"), f"{name}: re-run `clankers-build-urdf`"
         assert got.get("rpy") == want.get("rpy"), f"{name}: re-run `clankers-build-urdf`"
+    assert sorted(_joints(generated)) == sorted(_joints(fresh)), (
+        "checked-in URDF has different joints from robots.yaml -- re-run `clankers-build-urdf`"
+    )

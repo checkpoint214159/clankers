@@ -118,12 +118,14 @@ def compose_urdf(
     *,
     package: str,
     robot_name: str = "clankers_combined",
-    keep_gripper: bool = True,
+    keep_gripper: bool | None = None,
 ) -> ET.ElementTree:
     """Build the combined tree: arm -> adapter -> hand, driven entirely by robots.yaml."""
     adapter = cfg.raw.get("adapter")
     if not adapter:
         raise ComposeError("robots.yaml has no `adapter:` section; cannot place the hand")
+    if keep_gripper is None:
+        keep_gripper = bool(adapter.get("keep_gripper", False))
 
     arm_root = ET.parse(arm_urdf).getroot()
     hand_root = ET.parse(hand_urdf).getroot()
