@@ -14,6 +14,7 @@ import { PoseLibrary } from './PoseLibrary';
 import { RobotArmPage } from './RobotArmPage';
 import { LeapHandPage } from './LeapHandPage';
 import {
+  applyLiveArmPositions,
   applyLiveHandPositions,
   buildCombinedModel,
   clampArmJoint,
@@ -69,6 +70,8 @@ export function CombinedPage() {
   const [handOpen, setHandOpen] = React.useState(false);
   const [armLive, setArmLive] = React.useState(false);
   const [handLive, setHandLive] = React.useState(false);
+  // Kept so a re-zero can be put back; the arm's equivalent is a one-way write to flash.
+  const [handZeroUndo, setHandZeroUndo] = React.useState(null);
 
   // Mirror of `targets` for event handlers, which need the value they are about to set
   // without waiting for a re-render to queue it onto the bus.
@@ -87,6 +90,13 @@ export function CombinedPage() {
     if (!mirrorLive || handLive || !hand.connected) return;
     setTargets((prev) => applyLiveHandPositions(prev, MODEL, hand.joints));
   }, [mirrorLive, handLive, hand.connected, hand.joints]);
+
+  // Same for the arm. Without it the arm sliders read 0 while the arm is elsewhere, and
+  // "Send arm pose" would command a pose the operator never chose.
+  React.useEffect(() => {
+    if (!mirrorLive || armLive || !armConn?.connected) return;
+    setTargets((prev) => applyLiveArmPositions(prev, MODEL, arm?.robotArmJointRows));
+  }, [mirrorLive, armLive, armConn?.connected, arm?.robotArmJointRows]);
 
   const handTargetsFrom = React.useCallback((source) => {
     const out = {};
@@ -108,8 +118,11 @@ export function CombinedPage() {
    * of one slider does not re-send the other five on every tick of a shared serial bus.
    */
   const sendArmTargets = React.useCallback(
-    async (next, { force = false } = {}) => {
+    async (next, { force = false, only = null } = {}) => {
       for (const joint of MODEL.arm) {
+        // A live drag commands the joint under the cursor and nothing else. Sending the
+        // whole pose would fling the other five to whatever their sliders happened to say.
+        if (only && joint.name !== only) continue;
         const row = armRowByName[joint.name];
         if (!row?.hit) continue;
         // MIT mode takes torque/impedance commands, not a position target.
@@ -126,7 +139,10 @@ export function CombinedPage() {
   );
 
   const armSender = useCoalescedSender(
-    React.useCallback((next) => sendArmTargets(next), [sendArmTargets]),
+    React.useCallback(
+      ({ targets: next, only }) => sendArmTargets(next, { only }),
+      [sendArmTargets],
+    ),
   );
   const handSender = useCoalescedSender(
     React.useCallback((next) => hand.ops.pos(handTargetsFrom(next)), [hand.ops, handTargetsFrom]),
@@ -138,7 +154,7 @@ export function CombinedPage() {
       targetsRef.current = next;
       setTargets(next);
       if (ARM_NAMES.has(name)) {
-        if (armLive && armReady) armSender.queue(next);
+        if (armLive && armReady) armSender.queue({ targets: next, only: name });
       } else if (handLive && canPoseHand) {
         handSender.queue(next);
       }
@@ -217,6 +233,30 @@ export function CombinedPage() {
     (joint, delta) => run(`jog ${joint.name}`, () => hand.ops.jog(joint.servoId, delta)),
     [hand.ops, run],
   );
+
+  const anyHandTorqueOn = (hand.joints || []).some((j) => j?.torque_enabled);
+
+  const setHandMechanicalZero = React.useCallback(async () => {
+    const ok = window.confirm(
+      'Set mechanical zero for the hand?\n\n' +
+        'This rewrites Homing_Offset in each servo\'s EEPROM so the pose it is in RIGHT NOW ' +
+        'reads as 0 rad. It does not move the hand. Torque must be off, and EEPROM writes ' +
+        'are wear-limited.\n\nThis one is undoable — the previous offsets are kept.',
+    );
+    if (!ok) return;
+    await run('hand set mechanical zero', async () => {
+      const data = await hand.ops.setMechanicalZero({ confirm: true });
+      setHandZeroUndo(data?.previous_offsets || null);
+    });
+  }, [hand.ops, run]);
+
+  const undoHandMechanicalZero = React.useCallback(async () => {
+    if (!handZeroUndo) return;
+    await run('hand restore offsets', async () => {
+      await hand.ops.restoreHomingOffsets({ offsets: handZeroUndo, confirm: true });
+      setHandZeroUndo(null);
+    });
+  }, [hand.ops, handZeroUndo, run]);
 
   const canSendPose = armReady || canPoseHand;
 
@@ -358,6 +398,30 @@ export function CombinedPage() {
             Send hand pose
           </button>
         </div>
+        <div className="row toolbar compactToolbar">
+          <button
+            className="dangerBtn"
+            onClick={setHandMechanicalZero}
+            disabled={!hand.connected || busy || anyHandTorqueOn}
+            title={
+              anyHandTorqueOn
+                ? 'Disable torque first — the servo locks its EEPROM while powered'
+                : 'Make the pose the hand is in right now read as 0 rad'
+            }
+          >
+            Set Mechanical Zero (hand)
+          </button>
+          {handZeroUndo && (
+            <button onClick={undoHandMechanicalZero} disabled={busy}>
+              Undo re-zero
+            </button>
+          )}
+          <span className="muted">
+            Rewrites each servo&apos;s Homing_Offset (EEPROM). Does not move the hand.
+            {anyHandTorqueOn ? ' Torque is on — disable it first.' : ''}
+          </span>
+        </div>
+
         {handLive && mirrorLive && (
           <p className="muted">
             Live driving pauses position mirroring — otherwise the measured position fights the

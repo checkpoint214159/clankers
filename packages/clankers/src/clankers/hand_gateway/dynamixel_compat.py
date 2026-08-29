@@ -33,6 +33,20 @@ def rad_to_ticks(rad: float) -> int:
     return CENTER_TICK + round(rad * TICKS_PER_REV / math.tau)
 
 
+def ticks_delta_to_rad(ticks: int) -> float:
+    """Convert a tick *difference* to radians.
+
+    Distinct from `ticks_to_rad`, which converts an absolute tick reading and therefore
+    subtracts CENTER_TICK. Homing offsets are differences, so running them through the
+    absolute conversion would shift every one by half a turn.
+    """
+    return ticks * (math.tau / TICKS_PER_REV)
+
+
+def rad_delta_to_ticks(rad: float) -> int:
+    return round(rad * TICKS_PER_REV / math.tau)
+
+
 def patch_xc330_m288_table() -> None:
     """Add a local 'xc330-m288' entry to lerobot's Dynamixel model tables.
 

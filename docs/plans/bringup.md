@@ -26,6 +26,10 @@
       `sim_to_real_indices` / `real_to_sim_indices`; reconcile with observed mapping.
 - [ ] Update `robots.yaml` hand joints (servo_id, signs, any limit corrections); set `hand.calibrated: true`.
 - [ ] Configure firmware: current limit 300 mA, verify temperature limit 70 °C, shutdown register defaults.
+- [ ] Set the hand's mechanical zero: torque off, hold the hand in the pose that should read
+      0 rad, then `set_mechanical_zero` (studio: Hand > Set Mechanical Zero). Writes
+      Homing_Offset in EEPROM — wear-limited, refused while torque is on, and undoable
+      via the previous offsets it returns.
 
 ## 2. Hand — torque-on smoke
 - [ ] Single-servo jog within limits from the studio; verify clamps by commanding past a limit (must clip).

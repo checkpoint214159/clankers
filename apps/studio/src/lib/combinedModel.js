@@ -61,6 +61,30 @@ export function zeroTargets(model) {
   return out;
 }
 
+/**
+ * Merge live arm readings into a name-keyed target map.
+ *
+ * Without this the arm sliders sit at 0 while the real arm is somewhere else entirely, and
+ * the first thing sent commands every joint to a pose nobody asked for.
+ */
+export function applyLiveArmPositions(targets, model, rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return targets;
+  const next = { ...targets };
+  let changed = false;
+  for (const row of rows) {
+    const joint = model.arm.find((j) => j.joint === Number(row?.joint));
+    const pos = Number(row?.hit?.pos);
+    if (joint && Number.isFinite(pos)) {
+      const clamped = clampArmJoint(joint, pos);
+      if (next[joint.name] !== clamped) {
+        next[joint.name] = clamped;
+        changed = true;
+      }
+    }
+  }
+  return changed ? next : targets;
+}
+
 /** Merge live gateway joint readings (servo_id keyed) into a name-keyed target map. */
 export function applyLiveHandPositions(targets, model, liveJoints) {
   if (!Array.isArray(liveJoints) || liveJoints.length === 0) return targets;

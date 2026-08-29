@@ -139,6 +139,14 @@ class HandGatewayServer:
             return svc.reboot(servo_id=int(msg["servo_id"]))
         if op == "set_current_limit":
             return svc.set_current_limit(ma=msg["ma"])
+        if op == "set_mechanical_zero":
+            return svc.set_mechanical_zero(
+                servo_ids=msg.get("servo_ids"), confirm=bool(msg.get("confirm", False))
+            )
+        if op == "restore_homing_offsets":
+            return svc.restore_homing_offsets(
+                offsets=msg.get("offsets") or {}, confirm=bool(msg.get("confirm", False))
+            )
         if op == "heartbeat":
             return svc.heartbeat()
         raise GatewayError(f"unknown op {op!r}")

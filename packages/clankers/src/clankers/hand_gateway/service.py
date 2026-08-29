@@ -33,6 +33,8 @@ OP_NAMES = [
     "error_status",
     "reboot",
     "set_current_limit",
+    "set_mechanical_zero",
+    "restore_homing_offsets",
     "heartbeat",
 ]
 
@@ -166,6 +168,77 @@ class GatewayService:
         self.clamp.note(joint.name, target)
         return {"servo_id": servo_id, "target": target}
 
+    def set_mechanical_zero(
+        self, servo_ids: list[int] | None = None, *, confirm: bool = False
+    ) -> dict[str, Any]:
+        """Make the hand's current physical pose read as zero (Homing_Offset, EEPROM).
+
+        Three guards, in order of how much they hurt to get wrong:
+
+        - `confirm` must be set. This is the hand's counterpart to the arm's
+          set_zero_position, and the arm's is what an operator can destroy by reflex.
+        - Torque must be OFF on every targeted servo. The servo locks its EEPROM while
+          torque is on, so a partial write would leave half the hand re-zeroed.
+        - Faulted servos are excluded from the reading they would poison (ADR-0004).
+
+        Unlike the arm's, this IS undoable: the previous offsets come back in the result,
+        and `restore_homing_offsets` writes them again.
+        """
+        ids = list(servo_ids) if servo_ids is not None else list(self._servo_ids)
+        self._check_ids(ids)
+        if not confirm:
+            raise GatewayError(
+                "set_mechanical_zero rewrites Homing_Offset in EEPROM (wear-limited) and "
+                "changes what 0 rad means for the hand; re-send with confirm=true"
+            )
+        live = self.bus.read_torque_enabled(ids)
+        powered = sorted(sid for sid, on in live.items() if on)
+        if powered:
+            raise GatewayError(
+                f"refusing to re-zero while torque is on for {powered}: the servo locks its "
+                "EEPROM when powered, so the write would land on only some joints. Disable "
+                "torque first, hold the hand in the pose you want to call zero, then retry"
+            )
+        result = self.bus.set_mechanical_zero(ids)
+        # Positions now mean something different, so any remembered target is stale.
+        positions = {
+            self._joint_by_servo_id[sid].name: s["pos"]
+            for sid, s in self.bus.read_state().items()
+            if sid in self._joint_by_servo_id
+        }
+        self.clamp.reset(positions)
+        return {
+            "servo_ids": ids,
+            "previous_offsets": {str(k): v for k, v in result["previous"].items()},
+            "new_offsets": {str(k): v for k, v in result["new"].items()},
+        }
+
+    def restore_homing_offsets(
+        self, offsets: dict[str, int], *, confirm: bool = False
+    ) -> dict[str, Any]:
+        """Undo a re-zero by writing back the offsets `set_mechanical_zero` returned."""
+        if not confirm:
+            raise GatewayError("restore_homing_offsets writes EEPROM; re-send with confirm=true")
+        try:
+            parsed = {int(k): int(v) for k, v in (offsets or {}).items()}
+        except (TypeError, ValueError) as exc:
+            raise GatewayError(f"offsets must be {{servo_id: ticks}}: {exc}") from exc
+        if not parsed:
+            raise GatewayError("no offsets given")
+        ids = sorted(parsed)
+        self._check_ids(ids)
+        powered = sorted(sid for sid, on in self.bus.read_torque_enabled(ids).items() if on)
+        if powered:
+            raise GatewayError(f"refusing to write Homing_Offset while torque is on for {powered}")
+        self.bus.write_homing_offsets(parsed)
+        positions = {
+            self._joint_by_servo_id[sid].name: s["pos"]
+            for sid, s in self.bus.read_state().items()
+            if sid in self._joint_by_servo_id
+        }
+        self.clamp.reset(positions)
+        return {"servo_ids": ids}
+
     def state_once(self) -> dict[str, Any]:
         return {"joints": self.joints_payload(self.bus.read_state())}
 
@@ -216,6 +289,9 @@ class GatewayService:
                     "pos": s["pos"],
                     "vel": s["vel"],
                     "current_ma": s["current_ma"],
+                    # Clients need this to know whether EEPROM-writing ops are available at
+                    # all: the servo locks its EEPROM while torque is on.
+                    "torque_enabled": sid in self._enabled_ids,
                 }
             )
         return out

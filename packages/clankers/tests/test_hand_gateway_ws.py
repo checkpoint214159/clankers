@@ -314,3 +314,112 @@ async def test_multiple_clients_only_subscribers_get_pushes() -> None:
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(0.2):
                     await silent.recv()
+
+
+async def test_mechanical_zero_requires_explicit_confirmation() -> None:
+    """EEPROM writes are wear-limited and change what 0 rad means, so they are never a
+    single unqualified call (CLAUDE.md: batched + explicitly confirmed)."""
+    async with (
+        _gateway() as (server, _service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        resp = await client.call("set_mechanical_zero")
+        assert resp["ok"] is False
+        assert "confirm" in resp["error"]
+
+
+async def test_mechanical_zero_refuses_while_torque_is_on() -> None:
+    """A powered servo locks its EEPROM, so the write would land on only some joints."""
+    async with (
+        _gateway() as (server, _service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        await client.call("enable")
+        resp = await client.call("set_mechanical_zero", confirm=True)
+        assert resp["ok"] is False
+        assert "torque is on" in resp["error"]
+
+
+async def test_mechanical_zero_makes_the_current_pose_read_as_zero() -> None:
+    async with (
+        _gateway() as (server, service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        # Drive somewhere, then torque off and call that spot zero.
+        joint = service.hand_cfg.joints[2]
+        await client.call("enable")
+        for _ in range(30):
+            await client.call("jog", servo_id=joint.servo_id, delta_rad=0.05)
+        await client.call("disable")
+
+        moved = (await client.call("state_once"))["data"]["joints"]
+        before = next(j["pos"] for j in moved if j["servo_id"] == joint.servo_id)
+        assert abs(before) > 0.1, "test needs the joint away from zero to be meaningful"
+
+        resp = await client.call("set_mechanical_zero", confirm=True)
+        assert resp["ok"] is True, resp.get("error")
+
+        after = (await client.call("state_once"))["data"]["joints"]
+        now = next(j["pos"] for j in after if j["servo_id"] == joint.servo_id)
+        assert now == pytest.approx(0.0, abs=1e-2)
+        # Nothing moved: the reading changed meaning, not the hand.
+        assert bus.read_homing_offsets([joint.servo_id])[joint.servo_id] != 0
+
+
+async def test_mechanical_zero_is_undoable() -> None:
+    """The arm's set_zero_position is a one-way write to motor flash; this one is not, and
+    that difference is the whole reason previous offsets come back in the response."""
+    async with (
+        _gateway() as (server, service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        joint = service.hand_cfg.joints[1]
+        await client.call("enable")
+        for _ in range(20):
+            await client.call("jog", servo_id=joint.servo_id, delta_rad=0.05)
+        await client.call("disable")
+
+        before = next(
+            j["pos"]
+            for j in (await client.call("state_once"))["data"]["joints"]
+            if j["servo_id"] == joint.servo_id
+        )
+        zeroed = await client.call("set_mechanical_zero", confirm=True)
+        previous = zeroed["data"]["previous_offsets"]
+
+        restored = await client.call("restore_homing_offsets", offsets=previous, confirm=True)
+        assert restored["ok"] is True, restored.get("error")
+        back = next(
+            j["pos"]
+            for j in (await client.call("state_once"))["data"]["joints"]
+            if j["servo_id"] == joint.servo_id
+        )
+        assert back == pytest.approx(before, abs=1e-2)
+
+
+async def test_restore_offsets_also_needs_confirmation() -> None:
+    async with (
+        _gateway() as (server, _service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        resp = await client.call("restore_homing_offsets", offsets={"0": 5})
+        assert resp["ok"] is False
+        assert "confirm" in resp["error"]
+
+
+async def test_state_reports_torque_so_clients_can_gate_eeprom_ops() -> None:
+    async with (
+        _gateway() as (server, _service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        off = (await client.call("state_once"))["data"]["joints"]
+        assert all(j["torque_enabled"] is False for j in off)
+        await client.call("enable")
+        on = (await client.call("state_once"))["data"]["joints"]
+        assert all(j["torque_enabled"] is True for j in on)

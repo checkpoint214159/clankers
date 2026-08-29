@@ -17,7 +17,13 @@ from typing import Any
 
 from clankers.config import HandConfig, load_robots
 
-from .dynamixel_compat import patch_xc330_m288_table, rad_to_ticks, ticks_to_rad
+from .dynamixel_compat import (
+    patch_xc330_m288_table,
+    rad_delta_to_ticks,
+    rad_to_ticks,
+    ticks_delta_to_rad,
+    ticks_to_rad,
+)
 
 DEFAULT_SCAN_BAUD = 4_000_000  # LEAP builds default; confirmed at scan per robots.yaml comment
 
@@ -59,6 +65,37 @@ class HandBus(ABC):
     @abstractmethod
     def set_current_limit(self, ma: float) -> None: ...
 
+    @abstractmethod
+    def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
+        """`{servo_id: torque_on}` — the EEPROM area is locked while torque is on."""
+
+    @abstractmethod
+    def read_homing_offsets(self, ids: list[int]) -> dict[int, int]:
+        """`{servo_id: offset_ticks}` from Homing_Offset (EEPROM)."""
+
+    @abstractmethod
+    def write_homing_offsets(self, offsets: dict[int, int]) -> None:
+        """Write Homing_Offset for each servo. EEPROM: wear-limited, torque must be off."""
+
+    def set_mechanical_zero(self, ids: list[int]) -> dict[str, dict[int, int]]:
+        """Make each servo's current physical position read as 0 rad.
+
+        Dynamixels have no "set zero" command like the Damiao motors do; the equivalent is
+        Homing_Offset, which is added to the raw encoder reading. To put zero here, shift the
+        offset by exactly how far the servo currently reads from zero.
+
+        Returns `{"previous": {...}, "new": {...}}` in ticks. `previous` is what makes this
+        undoable -- unlike the arm's set_zero_position, which is a one-way write to flash.
+        """
+        previous = self.read_homing_offsets(ids)
+        state = self.read_state()
+        new: dict[int, int] = {}
+        for sid in ids:
+            reported_rad = float(state[sid]["pos"])
+            new[sid] = int(previous[sid]) - rad_delta_to_ticks(reported_rad)
+        self.write_homing_offsets(new)
+        return {"previous": previous, "new": new}
+
 
 class MockBus(HandBus):
     """Pure-python fake of the 16-servo LEAP hand bus, seeded from robots.yaml.
@@ -84,6 +121,9 @@ class MockBus(HandBus):
         self._error_bits: dict[int, int] = dict.fromkeys(self._joints, 0)
         self._temp_c: dict[int, float] = dict.fromkeys(self._joints, 25.0)
         self._voltage_v: dict[int, float] = dict.fromkeys(self._joints, 5.0)
+        # `_pos` is the RAW encoder position; what a read reports is raw + homing offset,
+        # exactly as the servo does it, so re-zeroing shifts readings the same way.
+        self._homing_offset: dict[int, int] = dict.fromkeys(self._joints, 0)
 
     def connect(self) -> None:
         self._connected = True
@@ -132,12 +172,13 @@ class MockBus(HandBus):
                 new_pos = prev
             self._pos[sid] = new_pos
             vel = (new_pos - prev) / self.NOMINAL_DT_S
+            reported = new_pos + ticks_delta_to_rad(self._homing_offset[sid])
             current_ma = (
                 min(self._current_limit_ma, self.CURRENT_IDLE_MA + self.CURRENT_PER_RAD_S * abs(vel))
                 if self._torque_enabled[sid]
                 else 0.0
             )
-            out[sid] = {"pos": new_pos, "vel": vel, "current_ma": current_ma}
+            out[sid] = {"pos": reported, "vel": vel, "current_ma": current_ma}
         return out
 
     def read_health(self) -> dict[int, dict[str, float]]:
@@ -155,7 +196,9 @@ class MockBus(HandBus):
         self._require_connected()
         self._check_ids(targets.keys())
         for sid, rad in targets.items():
-            self._target[sid] = self._joints[sid].limit.clamp(float(rad))
+            clamped = self._joints[sid].limit.clamp(float(rad))
+            # Targets are in reported space; store raw so the lag model and the offset agree.
+            self._target[sid] = clamped - ticks_delta_to_rad(self._homing_offset[sid])
 
     def reboot(self, servo_id: int) -> None:
         self._require_connected()
@@ -167,6 +210,26 @@ class MockBus(HandBus):
     def set_current_limit(self, ma: float) -> None:
         self._require_connected()
         self._current_limit_ma = float(ma)
+
+    def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
+        self._require_connected()
+        self._check_ids(ids)
+        return {sid: self._torque_enabled[sid] for sid in ids}
+
+    def read_homing_offsets(self, ids: list[int]) -> dict[int, int]:
+        self._require_connected()
+        self._check_ids(ids)
+        return {sid: self._homing_offset[sid] for sid in ids}
+
+    def write_homing_offsets(self, offsets: dict[int, int]) -> None:
+        self._require_connected()
+        self._check_ids(offsets.keys())
+        # Mirrors the servo: the EEPROM area is read-only while torque is on.
+        locked = sorted(sid for sid in offsets if self._torque_enabled[sid])
+        if locked:
+            raise RuntimeError(f"cannot write Homing_Offset while torque is on: {locked}")
+        for sid, ticks in offsets.items():
+            self._homing_offset[sid] = int(ticks)
 
     def inject_fault(self, servo_id: int, error_bits: int) -> None:
         """Test hook: set the raw addr-70-style Hardware_Error_Status bitmask for a servo."""
@@ -316,6 +379,26 @@ class LerobotDynamixelBus(HandBus):
                 "current_ma": cur_raw[name] * self.CURRENT_MA_PER_LSB,
             }
         return out
+
+    def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
+        bus = self._require_connected()
+        raw = bus.sync_read("Torque_Enable", normalize=False)
+        return {sid: bool(raw[self._name_by_id[sid]]) for sid in ids}
+
+    def read_homing_offsets(self, ids: list[int]) -> dict[int, int]:
+        bus = self._require_connected()
+        raw = bus.sync_read("Homing_Offset", normalize=False)
+        return {sid: int(raw[self._name_by_id[sid]]) for sid in ids}
+
+    def write_homing_offsets(self, offsets: dict[int, int]) -> None:
+        """EEPROM writes, one servo at a time (there is no sync write for EEPROM).
+
+        Wear-limited, so callers batch a whole re-zero into one call and confirm it first
+        (see CLAUDE.md); nothing here should be driven from a slider.
+        """
+        bus = self._require_connected()
+        for sid, ticks in offsets.items():
+            bus.write("Homing_Offset", self._name_by_id[sid], int(ticks), normalize=False)
 
     def read_health(self) -> dict[int, dict[str, float]]:
         bus = self._require_connected()

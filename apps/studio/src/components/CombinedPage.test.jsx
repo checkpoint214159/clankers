@@ -90,6 +90,8 @@ function makeHand(overrides = {}) {
       pos: vi.fn().mockResolvedValue({}),
       errorStatus: vi.fn().mockResolvedValue({}),
       reboot: vi.fn().mockResolvedValue({}),
+      setMechanicalZero: vi.fn().mockResolvedValue({ previous_offsets: { 0: 12, 1: -4 } }),
+      restoreHomingOffsets: vi.fn().mockResolvedValue({}),
     },
     ...overrides,
   };
@@ -313,12 +315,12 @@ describe('CombinedPage', () => {
 
     fireEvent.click(screen.getByLabelText('live arm'));
     fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '0.3' } });
-    // The first live send establishes a baseline for all six joints; later drags only
-    // re-send what actually changed.
+    // Only the dragged joint is commanded. Sending the whole pose would fling the other
+    // five to whatever their sliders happened to say.
     await waitFor(() => expect(controlMotorMock).toHaveBeenCalled());
-    const j1 = controlMotorMock.mock.calls.find((c) => c[0].esc_id === 1);
-    expect(j1[1]).toBe('move');
-    expect(j1[2].target).toBeCloseTo(0.3);
+    const moved = controlMotorMock.mock.calls.filter((c) => c[1] === 'move');
+    expect(moved.every((c) => c[0].esc_id === 1)).toBe(true);
+    expect(moved.at(-1)[2].target).toBeCloseTo(0.3);
   });
 
   it('sends the arm pose on demand while live is off', async () => {
@@ -366,5 +368,77 @@ describe('CombinedPage', () => {
     useHandGatewayContext.mockReturnValue(makeHand({ connected: true }));
     render(<CombinedPage />);
     expect(screen.getByLabelText('live arm').disabled).toBe(true);
+  });
+
+  it('shows the arm where it actually is, not at zero', async () => {
+    // Sliders that read 0 while the arm is elsewhere make "Send arm pose" command a pose
+    // nobody chose -- which is what made one slider appear to move all six.
+    const rows = armRows();
+    rows[0].hit.pos = 0.62;
+    useArm({ robotArmJointRows: rows }, true);
+    useHandGatewayContext.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+    await waitFor(() => expect(viewerJoints().joint1).toBeCloseTo(0.62));
+  });
+
+  it('stops mirroring the arm while it is being driven live', async () => {
+    const rows = armRows();
+    rows[0].hit.pos = 0.62;
+    useArm({ robotArmJointRows: rows }, true);
+    useHandGatewayContext.mockReturnValue(makeHand());
+    render(<CombinedPage />);
+    await waitFor(() => expect(viewerJoints().joint1).toBeCloseTo(0.62));
+
+    fireEvent.click(screen.getByLabelText('live arm'));
+    fireEvent.change(screen.getByLabelText('joint1'), { target: { value: '0.1' } });
+    expect(viewerJoints().joint1).toBeCloseTo(0.1);
+  });
+
+  it('will not re-zero the hand while torque is on', () => {
+    // The servo locks its EEPROM when powered, so a write would land on only some joints.
+    useArm({}, false);
+    useHandGatewayContext.mockReturnValue(
+      makeHand({ connected: true, joints: [{ servo_id: 0, pos: 0, torque_enabled: true }] }),
+    );
+    render(<CombinedPage />);
+    expect(screen.getByRole('button', { name: /set mechanical zero \(hand\)/i }).disabled).toBe(
+      true,
+    );
+  });
+
+  it('asks before re-zeroing the hand, and does nothing if declined', () => {
+    useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGatewayContext.mockReturnValue(hand);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /set mechanical zero \(hand\)/i }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(hand.ops.setMechanicalZero).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('re-zeroes the hand on confirmation and then offers an undo', async () => {
+    useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGatewayContext.mockReturnValue(hand);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<CombinedPage />);
+
+    expect(screen.queryByRole('button', { name: /undo re-zero/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /set mechanical zero \(hand\)/i }));
+    await waitFor(() => expect(hand.ops.setMechanicalZero).toHaveBeenCalledWith({ confirm: true }));
+
+    // Unlike the arm's one-way write to flash, this can be put back.
+    const undo = await screen.findByRole('button', { name: /undo re-zero/i });
+    fireEvent.click(undo);
+    await waitFor(() =>
+      expect(hand.ops.restoreHomingOffsets).toHaveBeenCalledWith({
+        offsets: { 0: 12, 1: -4 },
+        confirm: true,
+      }),
+    );
+    confirmSpy.mockRestore();
   });
 });

@@ -191,6 +191,13 @@ export function useHandGateway({ wsUrl = DEFAULT_HAND_WS_URL, heartbeatMs = HEAR
 
   const errorStatus = () => sendOp('error_status', {});
 
+  // EEPROM writes: the gateway refuses both unless confirm is set, and refuses while torque
+  // is on (the servo locks its EEPROM when powered).
+  const setMechanicalZero = (payload) => sendOp('set_mechanical_zero', payload || {}, 20000);
+
+  const restoreHomingOffsets = (payload) =>
+    sendOp('restore_homing_offsets', payload || {}, 20000);
+
   const reboot = (servoId) => sendOp('reboot', { servo_id: servoId });
 
   const clearWatchdogTrip = () => setWatchdogTrip(null);
@@ -215,6 +222,8 @@ export function useHandGateway({ wsUrl = DEFAULT_HAND_WS_URL, heartbeatMs = HEAR
       pos,
       errorStatus,
       reboot,
+      setMechanicalZero,
+      restoreHomingOffsets,
     },
   };
 }
