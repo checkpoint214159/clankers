@@ -64,5 +64,7 @@ export function useCoalescedSender(send, intervalMs = DEFAULT_SEND_INTERVAL_MS) 
 
   React.useEffect(() => stop, [stop]);
 
-  return { queue, stop };
+  // Memoized: this object lands in effect dependency arrays, and a fresh identity every
+  // render makes those effects re-run every render.
+  return React.useMemo(() => ({ queue, stop }), [queue, stop]);
 }

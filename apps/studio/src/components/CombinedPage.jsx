@@ -162,11 +162,16 @@ export function CombinedPage() {
   // hand is back-drivable and may have flopped somewhere new. Drop out of live driving so
   // position mirroring resumes and the sliders re-sync to where the hand actually is;
   // otherwise the next drag re-asserts stale pre-trip targets and drags that joint back.
+  const lastTripRef = React.useRef(null);
   React.useEffect(() => {
-    if (hand.watchdogTrip) {
-      setHandLive(false);
-      handSender.stop();
-    }
+    const trip = hand.watchdogTrip;
+    // Only on a NEW trip. A trip is latched until the operator dismisses it, so reacting
+    // to its mere presence would re-clear handLive on every render -- meaning the live
+    // checkbox could be ticked but never stay on.
+    if (!trip || trip === lastTripRef.current) return;
+    lastTripRef.current = trip;
+    setHandLive(false);
+    handSender.stop();
   }, [hand.watchdogTrip, handSender]);
 
   const setJoint = React.useCallback(

@@ -504,4 +504,31 @@ describe('CombinedPage', () => {
     expect(armCtx.enableAllRobotArm).not.toHaveBeenCalled();
     expect(screen.getByText(/skipped .*arm/i)).toBeTruthy();
   });
+
+  it('lets live be switched back on after a trip, while the trip is still latched', async () => {
+    // A trip stays latched until dismissed. Reacting to its presence rather than to a NEW
+    // trip re-cleared handLive on every render, so the checkbox could be ticked but never
+    // stayed on -- and live dragging silently did nothing.
+    useArm({}, false);
+    useHandGatewayContext.mockReturnValue(
+      makeHand({ connected: true, watchdogTrip: { at: 1, gap_s: 12.4, timeout_s: 2 } }),
+    );
+    render(<CombinedPage />);
+    const live = screen.getByLabelText('live hand');
+    await waitFor(() => expect(live.checked).toBe(false));
+
+    fireEvent.click(live);
+    expect(live.checked).toBe(true);
+  });
+
+  it('still drives the hand live after a trip is dismissed and torque is back', async () => {
+    useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGatewayContext.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getByLabelText('live hand'));
+    fireEvent.change(screen.getByLabelText('index_mcp_flex'), { target: { value: '0.3' } });
+    await waitFor(() => expect(hand.ops.pos).toHaveBeenCalled());
+  });
 });
