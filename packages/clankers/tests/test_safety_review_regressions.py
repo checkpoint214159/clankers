@@ -5,6 +5,7 @@ Each test pins one reviewed defect closed; see the finding number in each docstr
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import pytest
@@ -18,10 +19,19 @@ from clankers.tasks.runner import TaskRunner
 CFG = load_robots()
 
 
-def _service(**kwargs) -> tuple[GatewayService, MockBus]:
-    bus = MockBus(CFG.hand)
+def _service(*, stepped_pos: bool = True, **kwargs) -> tuple[GatewayService, MockBus]:
+    """A service whose `pos` step-clamps, regardless of what robots.yaml currently says.
+
+    These findings are about the step clamp itself, so the config is constructed here rather
+    than read from disk -- turning `step_clamp_pos` off in robots.yaml (which is valid once
+    the servos enforce a firmware velocity profile) must not silently delete this coverage.
+    """
+    hand = dataclasses.replace(
+        CFG.hand, safety={**CFG.hand.safety, "step_clamp_pos": stepped_pos}
+    )
+    bus = MockBus(hand)
     bus.connect()
-    svc = GatewayService(bus, CFG.hand, **kwargs)
+    svc = GatewayService(bus, hand, **kwargs)
     return svc, bus
 
 
@@ -148,3 +158,40 @@ async def test_runner_calls_stop_safe_when_adapter_raises_mid_task() -> None:
         await runner.run_pose("hand_open", duration_s=0.2)
     assert adapter.stopped_safe is True
     assert "error" in events
+
+
+# -- firmware motion profile: the speed guard moves into the servo -------------------------
+
+
+def test_pos_without_step_clamp_reaches_the_target_in_one_command() -> None:
+    """With `step_clamp_pos: false` a pose command arrives in one call.
+
+    The step clamp existed to stop a single command commanding a fast, far jump. Once
+    Profile_Velocity bounds the servo's own speed, slicing the move host-side only means an
+    operator has to press "go to zero" repeatedly to actually get there.
+    """
+    svc, bus = _service(stepped_pos=False, allow_uncalibrated=True)
+    svc.enable()
+    bus._pos[2] = 1.0
+    bus._target[2] = 1.0
+    svc.enable()  # reseed the clamp from the live position
+    out = svc.pos(targets={"index_pip": 0.0})
+    assert out["targets"]["index_pip"] == pytest.approx(0.0)
+
+
+def test_pos_without_step_clamp_still_honours_joint_limits() -> None:
+    """Dropping the step clamp must not drop the limit clamp with it."""
+    svc, _bus = _service(stepped_pos=False, allow_uncalibrated=True)
+    svc.enable()
+    joint = CFG.hand.joint_by_servo_id(2)
+    out = svc.pos(targets={joint.name: 99.0})
+    assert out["targets"][joint.name] == pytest.approx(joint.limit.max)
+
+
+def test_jog_keeps_its_step_clamp_even_when_pos_does_not() -> None:
+    """Jog is a nudge primitive, so it stays bounded regardless of the pos setting."""
+    svc, _bus = _service(stepped_pos=False, allow_uncalibrated=True)
+    svc.enable()
+    max_step = float(CFG.hand.safety["max_step_rad"])
+    out = svc.jog(servo_id=2, delta_rad=99.0)
+    assert out["target"] == pytest.approx(max_step)

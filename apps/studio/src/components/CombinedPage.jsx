@@ -237,6 +237,24 @@ export function CombinedPage() {
     [armReady, canPoseHand, sendArmTargets, hand.ops, hand.connected, handTargetsFrom, run],
   );
 
+  // Enable both sides in one press. Debugging is mostly "enable everything, go to zero,
+  // look at it", and doing that from two separate section toolbars is three clicks of
+  // hunting. The per-section buttons stay -- sometimes you want only one side live.
+  const enableAll = React.useCallback(async () => {
+    const ran = [];
+    const skipped = [];
+    if (armReady) ran.push('arm');
+    else skipped.push('arm (gateway offline)');
+    if (handReady) ran.push('hand');
+    else skipped.push('hand (gateway offline)');
+
+    await run(`enable all (${ran.join(' + ') || 'nothing'})`, async () => {
+      if (armReady) await arm.enableAllRobotArm();
+      if (handReady) await hand.ops.enable();
+    });
+    if (skipped.length) setNote((n) => `${n} — skipped ${skipped.join(', ')}`);
+  }, [armReady, handReady, arm, hand.ops, run]);
+
   // Zero all = go to the zero pose on the hardware. It does not touch any encoder zero
   // reference; that is `Set mechanical zero`, inside the arm section behind its confirm.
   const zeroAll = React.useCallback(() => {
@@ -293,6 +311,9 @@ export function CombinedPage() {
           {/* Named for what it does, not "Zero all": the arm section has a *mechanical*
               zero that rewrites the encoder reference, and two buttons a letter apart doing
               opposite things is how a reference gets destroyed by accident. */}
+          <button onClick={enableAll} disabled={busy || (!armReady && !handReady)}>
+            Enable all
+          </button>
           <button className="primary strong" onClick={zeroAll} disabled={busy || !canSendPose}>
             Go to zero pose
           </button>

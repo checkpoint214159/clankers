@@ -346,8 +346,13 @@
         }
       }
     ],
+    "profile": {
+      "velocity_rev_per_min": 30,
+      "acceleration_rev_per_min2": 4000
+    },
     "safety": {
       "max_step_rad": 0.15,
+      "step_clamp_pos": false,
       "heartbeat_interval_s": 0.5,
       "watchdog_multiplier": 4
     }

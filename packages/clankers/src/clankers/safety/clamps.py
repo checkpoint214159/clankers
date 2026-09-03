@@ -61,6 +61,27 @@ class SafetyClamp:
             raise KeyError(f"unknown joint {name!r}")
         self._last[name] = float(value)
 
+    def apply_limits(self, targets: dict[str, float]) -> dict[str, float]:
+        """Joint limits only, no per-command step clamp.
+
+        For pose commands on a bus whose servos enforce their own velocity profile: the
+        speed guard lives in firmware, so slicing the move host-side just makes a single
+        commanded pose take several commands to arrive. Still updates `_last`, so a later
+        stepped command steps from where this one actually put the joint.
+        """
+        out: dict[str, float] = {}
+        for name, target in targets.items():
+            limit = self.limits.get(name)
+            if limit is None:
+                raise KeyError(f"unknown joint {name!r}")
+            value = float(target)
+            if not math.isfinite(value):
+                raise ValueError(f"non-finite target for {name!r}: {value!r}")
+            value = limit.clamp(value)
+            out[name] = value
+            self._last[name] = value
+        return out
+
     def apply(self, targets: dict[str, float]) -> dict[str, float]:
         """Clamp a {joint_name: target} command. Unknown joints and non-finite targets raise."""
         out: dict[str, float] = {}

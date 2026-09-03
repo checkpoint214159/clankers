@@ -94,8 +94,20 @@ hand:
     - { canonical: 13, servo_id: 13, name: thumb_mcp_flex, finger: thumb, limit: { min: -0.470, max: 2.443 } }
     - { canonical: 14, servo_id: 14, name: thumb_pip, finger: thumb, limit: { min: -1.200, max: 1.900 } }
     - { canonical: 15, servo_id: 15, name: thumb_dip, finger: thumb, limit: { min: -1.340, max: 1.880 } }
+  # Firmware motion profile (RAM registers 108/112 — not EEPROM, no wear concern).
+  # Profile_Velocity = 0 (the factory default) means "no profile": the servo drives at full
+  # speed toward each Goal_Position, which reads as a jerky step per command. Setting these
+  # makes the servo ramp on a trapezoidal profile in firmware, the same way the Damiao arm
+  # smooths a `pos_vel` command onboard. Applied on every connect.
+  profile:
+    velocity_rev_per_min: 30 # ~0.2 rad/s at the joint; raise for faster, lower for gentler
+    acceleration_rev_per_min2: 4000 # ramp rate into/out of that speed; 0 = instant
   safety:
-    max_step_rad: 0.15 # per-command position step clamp
+    max_step_rad: 0.15 # per-command position step clamp (see step_clamp_pos below)
+    # With a firmware profile the servo bounds its own speed, so chopping a `pos` command
+    # into 0.15 rad pieces only means an operator must press "go to zero" four times to
+    # actually get there. Jog keeps the clamp — it is a nudge primitive, not a pose command.
+    step_clamp_pos: false
     heartbeat_interval_s: 0.5 # commanding clients must send heartbeat at this rate
     watchdog_multiplier: 4 # torque off after 4 missed heartbeat intervals (3-5x convention)
 

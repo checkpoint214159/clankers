@@ -71,6 +71,7 @@ class HandConfig:
     current_limit_ma: int
     temperature_limit_c: int
     poll: dict[str, float]
+    profile: dict[str, float]
     joints: list[HandJoint]
     safety: dict[str, Any]
 
@@ -139,6 +140,7 @@ def load_robots(path: Path | None = None) -> RobotsConfig:
         current_limit_ma=int(hand_raw["current_limit_ma"]),
         temperature_limit_c=int(hand_raw["temperature_limit_c"]),
         poll={k: float(v) for k, v in hand_raw["poll"].items()},
+        profile={k: float(v) for k, v in (hand_raw.get("profile") or {}).items()},
         joints=[
             HandJoint(
                 canonical=int(j["canonical"]),

@@ -479,4 +479,29 @@ describe('CombinedPage', () => {
     render(<CombinedPage />);
     await waitFor(() => expect(screen.getByLabelText('live hand').checked).toBe(false));
   });
+
+  it('enables both sides from the whole-system toolbar', async () => {
+    const armCtx = useArm({}, true);
+    const hand = makeHand({ connected: true });
+    useHandGatewayContext.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    // The per-section Enable all buttons still exist; this is the first one, in the
+    // whole-system toolbar.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Enable all' })[0]);
+    await waitFor(() => expect(armCtx.enableAllRobotArm).toHaveBeenCalledTimes(1));
+    expect(hand.ops.enable).toHaveBeenCalledTimes(1);
+  });
+
+  it('enables only the side whose gateway is up, and says which it skipped', async () => {
+    const armCtx = useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGatewayContext.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Enable all' })[0]);
+    await waitFor(() => expect(hand.ops.enable).toHaveBeenCalled());
+    expect(armCtx.enableAllRobotArm).not.toHaveBeenCalled();
+    expect(screen.getByText(/skipped .*arm/i)).toBeTruthy();
+  });
 });

@@ -42,6 +42,10 @@ class FakeLerobotBus:
         if disable_torque and self.baudrate != CFG.hand.baud:
             raise ConnectionError("Failed to write 'Torque_Enable': no status packet")
 
+    def write(self, reg: str, motor: str, value: int, normalize: bool = True) -> None:
+        # connect() applies the firmware motion profile (Profile_Velocity/Acceleration).
+        self.calls.append(("write", reg, motor, value))
+
     def set_baudrate(self, baud: int) -> None:
         self.calls.append(("set_baudrate", baud))
         self.baudrate = baud
@@ -134,3 +138,19 @@ def test_failed_roll_call_error_survives_a_dead_bus(fake_lerobot) -> None:
 
     assert "roll call failed" in str(exc.value)
     assert "Torque_Enable" not in str(exc.value)
+
+
+def test_connect_applies_the_firmware_motion_profile(fake_lerobot) -> None:
+    """Profile_Velocity = 0 (factory default) means no profile: the servo drives at full
+    speed toward every goal, which reads as a jerky step per command."""
+    built, _ = fake_lerobot
+    LerobotDynamixelBus("/dev/fake", CFG.hand).connect()
+
+    writes = [c for c in built[0].calls if c[0] == "write"]
+    regs = {c[1] for c in writes}
+    assert regs == {"Profile_Velocity", "Profile_Acceleration"}
+    assert all(c[3] > 0 for c in writes), "a zero profile is the same as no profile"
+    # Applied after the roll call, so it is not attempted on a bus that is not answering.
+    first_write = next(i for i, c in enumerate(built[0].calls) if c[0] == "write")
+    last_ping = max(i for i, c in enumerate(built[0].calls) if c[0] == "broadcast_ping")
+    assert last_ping < first_write

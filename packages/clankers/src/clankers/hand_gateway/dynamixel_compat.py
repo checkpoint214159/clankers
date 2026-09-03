@@ -33,6 +33,27 @@ def rad_to_ticks(rad: float) -> int:
     return CENTER_TICK + round(rad * TICKS_PER_REV / math.tau)
 
 
+# Motion-profile register units (X-series datasheet). Writing these makes the servo ramp to
+# a goal on a trapezoidal velocity profile in firmware, instead of slamming toward it at full
+# speed -- which is what Profile_Velocity = 0 (the factory default) means.
+PROFILE_VELOCITY_REV_PER_MIN_PER_LSB = 0.229
+PROFILE_ACCEL_REV_PER_MIN2_PER_LSB = 214.577
+
+
+def rev_per_min_to_profile_velocity(rev_per_min: float) -> int:
+    """Profile_Velocity register value. 0 means "no limit", i.e. no profile at all."""
+    if rev_per_min <= 0:
+        return 0
+    return max(1, round(rev_per_min / PROFILE_VELOCITY_REV_PER_MIN_PER_LSB))
+
+
+def rev_per_min2_to_profile_accel(rev_per_min2: float) -> int:
+    """Profile_Acceleration register value. 0 means "no limit" (instant ramp)."""
+    if rev_per_min2 <= 0:
+        return 0
+    return max(1, round(rev_per_min2 / PROFILE_ACCEL_REV_PER_MIN2_PER_LSB))
+
+
 def ticks_delta_to_rad(ticks: int) -> float:
     """Convert a tick *difference* to radians.
 

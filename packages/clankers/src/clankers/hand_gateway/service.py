@@ -139,8 +139,13 @@ class GatewayService:
                 "confirms the joint map (docs/plans/bringup.md) — use `jog` for single-servo "
                 "moves, or start the gateway with --allow-uncalibrated"
             )
+        # With a firmware motion profile the servo bounds its own speed, so slicing a pose
+        # into max_step_rad pieces only means the operator has to press "go to zero" four
+        # times to actually get there. Joint limits still apply either way; `jog` keeps the
+        # step clamp, since it is a nudge primitive rather than a pose command.
+        stepped = bool(self.hand_cfg.safety.get("step_clamp_pos", True))
         try:
-            clamped = self.clamp.apply(targets)
+            clamped = self.clamp.apply(targets) if stepped else self.clamp.apply_limits(targets)
         except KeyError as exc:
             raise GatewayError(str(exc)) from exc
         by_servo_id = {self._joint_by_name[name].servo_id: rad for name, rad in clamped.items()}

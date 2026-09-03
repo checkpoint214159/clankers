@@ -21,6 +21,8 @@ from .dynamixel_compat import (
     patch_xc330_m288_table,
     rad_delta_to_ticks,
     rad_to_ticks,
+    rev_per_min2_to_profile_accel,
+    rev_per_min_to_profile_velocity,
     ticks_delta_to_rad,
     ticks_to_rad,
 )
@@ -64,6 +66,14 @@ class HandBus(ABC):
 
     @abstractmethod
     def set_current_limit(self, ma: float) -> None: ...
+
+    def apply_motion_profile(self) -> dict[str, int]:
+        """Write Profile_Velocity/Acceleration from robots.yaml. RAM, so no wear concern.
+
+        Returns the register values written. Default implementation is a no-op for buses
+        that do not model firmware profiles.
+        """
+        return {}
 
     @abstractmethod
     def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
@@ -124,6 +134,7 @@ class MockBus(HandBus):
         # `_pos` is the RAW encoder position; what a read reports is raw + homing offset,
         # exactly as the servo does it, so re-zeroing shifts readings the same way.
         self._homing_offset: dict[int, int] = dict.fromkeys(self._joints, 0)
+        self._profile: dict[str, int] = {"velocity": 0, "acceleration": 0}
 
     def connect(self) -> None:
         self._connected = True
@@ -210,6 +221,17 @@ class MockBus(HandBus):
     def set_current_limit(self, ma: float) -> None:
         self._require_connected()
         self._current_limit_ma = float(ma)
+
+    def apply_motion_profile(self) -> dict[str, int]:
+        self._require_connected()
+        profile = self._hand_cfg.profile or {}
+        self._profile = {
+            "velocity": rev_per_min_to_profile_velocity(profile.get("velocity_rev_per_min", 0)),
+            "acceleration": rev_per_min2_to_profile_accel(
+                profile.get("acceleration_rev_per_min2", 0)
+            ),
+        }
+        return dict(self._profile)
 
     def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
         self._require_connected()
@@ -298,6 +320,7 @@ class LerobotDynamixelBus(HandBus):
         self._bus = bus
         self._ticks_per_rev = bus.model_resolution_table[model]
         self._verify_roll_call(baud)
+        self.apply_motion_profile()
 
     def _verify_roll_call(self, baud: int) -> None:
         """Ping every servo robots.yaml expects; fail loudly naming whoever is missing.
@@ -379,6 +402,22 @@ class LerobotDynamixelBus(HandBus):
                 "current_ma": cur_raw[name] * self.CURRENT_MA_PER_LSB,
             }
         return out
+
+    def apply_motion_profile(self) -> dict[str, int]:
+        bus = self._require_connected()
+        profile = self._hand_cfg.profile or {}
+        values = {
+            "Profile_Velocity": rev_per_min_to_profile_velocity(
+                profile.get("velocity_rev_per_min", 0)
+            ),
+            "Profile_Acceleration": rev_per_min2_to_profile_accel(
+                profile.get("acceleration_rev_per_min2", 0)
+            ),
+        }
+        for reg, value in values.items():
+            for name in self._name_by_id.values():
+                bus.write(reg, name, int(value), normalize=False)
+        return {"velocity": values["Profile_Velocity"], "acceleration": values["Profile_Acceleration"]}
 
     def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
         bus = self._require_connected()
