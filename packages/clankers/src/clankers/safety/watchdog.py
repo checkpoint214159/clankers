@@ -26,10 +26,14 @@ class Watchdog:
         self._clock = clock
         self._last_feed: float | None = None
         self.tripped = False
+        # How late the heartbeat actually was when it tripped. "Missed heartbeat" alone
+        # cannot tell a 2.1 s hiccup from a 30 s stall, and those have different causes.
+        self.trip_gap_s: float | None = None
 
     def start(self) -> None:
         self._last_feed = self._clock()
         self.tripped = False
+        self.trip_gap_s = None
 
     def disarm(self) -> None:
         """Stop supervising (operator intentionally torqued everything off). Keeps a trip latched."""
@@ -50,7 +54,9 @@ class Watchdog:
             return True
         if self._last_feed is None:
             return False  # not armed
-        if self._clock() - self._last_feed > self.timeout_s:
+        gap = self._clock() - self._last_feed
+        if gap > self.timeout_s:
             self.tripped = True
+            self.trip_gap_s = gap
             self._on_trip()
         return self.tripped

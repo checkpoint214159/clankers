@@ -319,8 +319,21 @@ class GatewayService:
             raise GatewayError(f"unknown servo_id(s): {unknown}")
 
     def _on_watchdog_trip(self) -> None:
-        logger.warning("hand watchdog tripped: missed heartbeat, disabling torque on all servos")
+        gap = self.watchdog.trip_gap_s
+        logger.warning(
+            "hand watchdog tripped: no heartbeat for %.1fs (timeout %.1fs), disabling torque "
+            "on all servos. A gap far larger than the timeout usually means the commanding "
+            "client stalled rather than died -- browser tabs throttle timers when backgrounded.",
+            gap if gap is not None else float("nan"),
+            self.watchdog.timeout_s,
+        )
         self.bus.disable_torque(list(self._servo_ids))
         self._enabled_ids.clear()
         if self.on_event is not None:
-            self.on_event({"event": "watchdog_trip"})
+            self.on_event(
+                {
+                    "event": "watchdog_trip",
+                    "gap_s": self.watchdog.trip_gap_s,
+                    "timeout_s": self.watchdog.timeout_s,
+                }
+            )

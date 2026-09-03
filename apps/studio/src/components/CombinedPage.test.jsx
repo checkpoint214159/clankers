@@ -441,4 +441,42 @@ describe('CombinedPage', () => {
     );
     confirmSpy.mockRestore();
   });
+
+  it('live-drags only the touched hand joint, never the whole hand', async () => {
+    // The gateway moves each joint at most max_step_rad per command, so a joint set earlier
+    // is often still converging. Re-asserting all 16 every tick keeps walking those toward
+    // their old targets while you are already dragging a different finger.
+    useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGatewayContext.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getByLabelText('live hand'));
+    fireEvent.change(screen.getByLabelText('index_mcp_flex'), { target: { value: '0.5' } });
+    await waitFor(() => expect(hand.ops.pos).toHaveBeenCalled());
+
+    const sent = hand.ops.pos.mock.calls.at(-1)[0];
+    expect(Object.keys(sent)).toEqual(['index_mcp_flex']);
+  });
+
+  it('still sends the whole hand for an explicit pose send', () => {
+    useArm({}, false);
+    const hand = makeHand({ connected: true });
+    useHandGatewayContext.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /send hand pose/i }));
+    expect(Object.keys(hand.ops.pos.mock.calls.at(-1)[0])).toHaveLength(16);
+  });
+
+  it('drops out of live driving when the watchdog trips', async () => {
+    // Torque is off after a trip, so the hand is back-drivable and may have flopped. Staying
+    // in live mode would keep mirroring paused and let the next drag re-assert stale targets.
+    useArm({}, false);
+    useHandGatewayContext.mockReturnValue(
+      makeHand({ connected: true, watchdogTrip: { at: 1, gap_s: 12.4, timeout_s: 2 } }),
+    );
+    render(<CombinedPage />);
+    await waitFor(() => expect(screen.getByLabelText('live hand').checked).toBe(false));
+  });
 });

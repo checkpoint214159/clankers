@@ -98,9 +98,16 @@ export function CombinedPage() {
     setTargets((prev) => applyLiveArmPositions(prev, MODEL, arm?.robotArmJointRows));
   }, [mirrorLive, armLive, armConn?.connected, arm?.robotArmJointRows]);
 
-  const handTargetsFrom = React.useCallback((source) => {
+  const handTargetsFrom = React.useCallback((source, only = null) => {
     const out = {};
-    for (const j of MODEL.hand.joints) out[j.name] = clampToLimit(j, source?.[j.name] ?? 0);
+    for (const j of MODEL.hand.joints) {
+      // A live drag commands the joint under the cursor and nothing else. Sending all 16
+      // every tick re-asserts targets that have not finished converging yet -- the gateway
+      // only moves each joint max_step_rad per command -- so an earlier joint keeps walking
+      // toward its old target while you are already dragging a different finger.
+      if (only && j.name !== only) continue;
+      out[j.name] = clampToLimit(j, source?.[j.name] ?? 0);
+    }
     return out;
   }, []);
 
@@ -145,8 +152,22 @@ export function CombinedPage() {
     ),
   );
   const handSender = useCoalescedSender(
-    React.useCallback((next) => hand.ops.pos(handTargetsFrom(next)), [hand.ops, handTargetsFrom]),
+    React.useCallback(
+      ({ targets: next, only }) => hand.ops.pos(handTargetsFrom(next, only)),
+      [hand.ops, handTargetsFrom],
+    ),
   );
+
+  // A trip means the gateway stopped trusting this client, and torque is now off -- so the
+  // hand is back-drivable and may have flopped somewhere new. Drop out of live driving so
+  // position mirroring resumes and the sliders re-sync to where the hand actually is;
+  // otherwise the next drag re-asserts stale pre-trip targets and drags that joint back.
+  React.useEffect(() => {
+    if (hand.watchdogTrip) {
+      setHandLive(false);
+      handSender.stop();
+    }
+  }, [hand.watchdogTrip, handSender]);
 
   const setJoint = React.useCallback(
     (name, value) => {
@@ -156,7 +177,7 @@ export function CombinedPage() {
       if (ARM_NAMES.has(name)) {
         if (armLive && armReady) armSender.queue({ targets: next, only: name });
       } else if (handLive && canPoseHand) {
-        handSender.queue(next);
+        handSender.queue({ targets: next, only: name });
       }
     },
     [armLive, armReady, handLive, canPoseHand, armSender, handSender],
@@ -220,6 +241,7 @@ export function CombinedPage() {
   // reference; that is `Set mechanical zero`, inside the arm section behind its confirm.
   const zeroAll = React.useCallback(() => {
     const next = zeroTargets(MODEL);
+    console.log(next);
     setTargets(next);
     return sendToRobot(next, 'zero all');
   }, [sendToRobot]);
