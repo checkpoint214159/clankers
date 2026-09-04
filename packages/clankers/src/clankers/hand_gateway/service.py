@@ -33,6 +33,7 @@ OP_NAMES = [
     "error_status",
     "reboot",
     "set_current_limit",
+    "check_current_limit",
     "set_mechanical_zero",
     "restore_homing_offsets",
     "heartbeat",
@@ -260,6 +261,36 @@ class GatewayService:
             raise GatewayError(f"unknown servo_id {servo_id}")
         self.bus.reboot(servo_id)
         return {"servo_id": servo_id}
+
+    def check_current_limit(self) -> dict[str, Any]:
+        """Compare the servos' Current_Limit against robots.yaml and complain if it differs.
+
+        Current_Limit lives in EEPROM, so this deliberately does NOT write it (wear-limited;
+        CLAUDE.md wants EEPROM writes batched and explicitly confirmed). But leaving the
+        configured value unapplied is worse than it looks: a stalled servo then draws up to
+        the factory limit rather than `hand.current_limit_ma`, and several stalled at once
+        sag the rail far enough to latch undervoltage faults across the chain.
+        """
+        want = float(self.hand_cfg.current_limit_ma)
+        try:
+            live = self.bus.read_current_limits()
+        except (ConnectionError, OSError, RuntimeError) as exc:
+            logger.warning("could not read Current_Limit: %s", exc)
+            return {"checked": False, "configured_ma": want}
+        mismatched = {sid: ma for sid, ma in live.items() if abs(ma - want) > 1.0}
+        if mismatched:
+            logger.error(
+                "Current_Limit on %d servo(s) is not the configured %.0f mA: %s. Nothing has "
+                "applied it -- robots.yaml alone does not reach the hardware. A stall will "
+                "draw to THAT limit, and several stalled servos can sag the rail into "
+                "undervoltage faults. Apply with the `set_current_limit` op (torque off).",
+                len(mismatched), want, {k: round(v) for k, v in sorted(mismatched.items())},
+            )
+        return {
+            "checked": True,
+            "configured_ma": want,
+            "mismatched": {str(k): v for k, v in sorted(mismatched.items())},
+        }
 
     def set_current_limit(self, ma: float) -> dict[str, Any]:
         ma = float(ma)

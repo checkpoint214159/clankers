@@ -78,6 +78,10 @@ class HandBus(ABC):
         """
         return {}
 
+    def read_current_limits(self) -> dict[int, float]:
+        """`{servo_id: mA}` from Current_Limit (EEPROM). Empty if the bus cannot report it."""
+        return {}
+
     @abstractmethod
     def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
         """`{servo_id: torque_on}` — the EEPROM area is locked while torque is on."""
@@ -235,6 +239,10 @@ class MockBus(HandBus):
             ),
         }
         return dict(self._profile)
+
+    def read_current_limits(self) -> dict[int, float]:
+        self._require_connected()
+        return dict.fromkeys(self._joints, self._current_limit_ma)
 
     def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
         self._require_connected()
@@ -445,6 +453,11 @@ class LerobotDynamixelBus(HandBus):
             "acceleration": values["Profile_Acceleration"],
             "failed_servo_ids": sorted(failed),
         }
+
+    def read_current_limits(self) -> dict[int, float]:
+        bus = self._require_connected()
+        raw = bus.sync_read("Current_Limit", normalize=False, num_retry=self.SYNC_READ_RETRIES)
+        return {sid: float(raw[name]) * self.CURRENT_MA_PER_LSB for sid, name in self._name_by_id.items()}
 
     def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
         bus = self._require_connected()

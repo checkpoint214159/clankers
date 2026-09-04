@@ -347,7 +347,7 @@
       }
     ],
     "profile": {
-      "velocity_rev_per_min": 30,
+      "velocity_rev_per_min": 6,
       "acceleration_rev_per_min2": 4000
     },
     "safety": {

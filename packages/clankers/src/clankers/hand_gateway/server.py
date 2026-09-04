@@ -140,6 +140,8 @@ class HandGatewayServer:
             return svc.reboot(servo_id=int(msg["servo_id"]))
         if op == "set_current_limit":
             return svc.set_current_limit(ma=msg["ma"])
+        if op == "check_current_limit":
+            return svc.check_current_limit()
         if op == "set_mechanical_zero":
             return svc.set_mechanical_zero(
                 servo_ids=msg.get("servo_ids"), confirm=bool(msg.get("confirm", False))
@@ -282,6 +284,8 @@ def main(argv: list[str] | None = None) -> None:
     bus.connect()
     try:
         service = GatewayService(bus, cfg.hand, allow_uncalibrated=args.allow_uncalibrated)
+        # Surfaced at startup rather than after a stall has already browned out the chain.
+        service.check_current_limit()
         server = HandGatewayServer(service, host=args.host, port=port)
         logger.info("hand gateway listening on %s:%s (mock=%s)", args.host, port, args.mock)
         asyncio.run(server.serve_forever())

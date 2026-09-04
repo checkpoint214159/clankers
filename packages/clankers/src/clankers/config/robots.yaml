@@ -100,7 +100,12 @@ hand:
   # makes the servo ramp on a trapezoidal profile in firmware, the same way the Damiao arm
   # smooths a `pos_vel` command onboard. Applied on every connect.
   profile:
-    velocity_rev_per_min: 30 # ~0.2 rad/s at the joint; raise for faster, lower for gentler
+    # Units are rev/min AT THE OUTPUT SHAFT, so the joint speed is
+    #   rad/s = rev_per_min / 60 * 2*pi
+    # 6 rev/min ~= 0.63 rad/s ~= 36 deg/s: visibly controlled for a finger. This was 30
+    # (~3.1 rad/s, ~180 deg/s) with a comment claiming 0.2 rad/s -- wrong by ~15x, and fast
+    # enough that fingers reach a collision before anyone can react.
+    velocity_rev_per_min: 6
     acceleration_rev_per_min2: 4000 # ramp rate into/out of that speed; 0 = instant
   safety:
     max_step_rad: 0.15 # per-command position step clamp (see step_clamp_pos below)

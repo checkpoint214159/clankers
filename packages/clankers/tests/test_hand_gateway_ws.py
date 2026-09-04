@@ -458,3 +458,36 @@ async def test_push_loop_survives_a_transient_bus_read_failure() -> None:
         )
         bus.read_state = real_read_state
         assert (await client.call("state_once"))["ok"] is True
+
+
+async def test_current_limit_mismatch_is_reported_not_silently_ignored() -> None:
+    """robots.yaml alone does not reach the hardware.
+
+    Current_Limit is EEPROM, so nothing writes it on connect. Leaving that invisible means a
+    stalled servo draws to the FACTORY limit instead of the configured one, and several
+    stalled at once can sag the rail into undervoltage faults across the chain.
+    """
+    async with (
+        _gateway() as (server, service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        # Hardware sitting at the factory limit rather than the configured one.
+        bus.set_current_limit(1750.0)
+        resp = await client.call("check_current_limit")
+
+        assert resp["ok"] is True
+        assert resp["data"]["checked"] is True
+        assert resp["data"]["configured_ma"] == pytest.approx(CFG.hand.current_limit_ma)
+        assert len(resp["data"]["mismatched"]) == 16
+
+
+async def test_current_limit_check_is_quiet_when_hardware_matches() -> None:
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        bus.set_current_limit(float(CFG.hand.current_limit_ma))
+        resp = await client.call("check_current_limit")
+        assert resp["data"]["mismatched"] == {}
