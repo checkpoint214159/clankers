@@ -468,7 +468,7 @@ async def test_current_limit_mismatch_is_reported_not_silently_ignored() -> None
     stalled at once can sag the rail into undervoltage faults across the chain.
     """
     async with (
-        _gateway() as (server, service, bus),
+        _gateway() as (server, _service, bus),
         websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
     ):
         client = _WsClient(ws)
