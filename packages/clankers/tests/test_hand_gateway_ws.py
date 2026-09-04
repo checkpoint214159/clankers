@@ -423,3 +423,38 @@ async def test_state_reports_torque_so_clients_can_gate_eeprom_ops() -> None:
         await client.call("enable")
         on = (await client.call("state_once"))["data"]["joints"]
         assert all(j["torque_enabled"] is True for j in on)
+
+
+async def test_push_loop_survives_a_transient_bus_read_failure() -> None:
+    """One dropped status packet must not end telemetry for the session.
+
+    The push loop is also one of the two places the watchdog is polled, so letting the task
+    die on an unhandled read error takes supervision down with the state stream.
+    """
+    fast = dataclasses.replace(CFG.hand, poll={**CFG.hand.poll, "state_hz": 50.0})
+    async with (
+        _gateway(hand_cfg=fast) as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        await client.call("state_stream", enabled=True)
+
+        real_read_state = bus.read_state
+        failures = {"n": 0}
+
+        def flaky_read_state():
+            if failures["n"] < 2:
+                failures["n"] += 1
+                raise ConnectionError("[TxRxResult] There is no status packet!")
+            return real_read_state()
+
+        bus.read_state = flaky_read_state
+        while failures["n"] < 2:  # let the push loop absorb both failures
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)
+
+        assert server._push_task is not None and not server._push_task.done(), (
+            "a transient read error killed the push loop"
+        )
+        bus.read_state = real_read_state
+        assert (await client.call("state_once"))["ok"] is True

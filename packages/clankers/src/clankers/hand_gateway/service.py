@@ -327,8 +327,9 @@ class GatewayService:
         gap = self.watchdog.trip_gap_s
         logger.warning(
             "hand watchdog tripped: no heartbeat for %.1fs (timeout %.1fs), disabling torque "
-            "on all servos. A gap far larger than the timeout usually means the commanding "
-            "client stalled rather than died -- browser tabs throttle timers when backgrounded.",
+            "on all servos. Just over the timeout usually means the gateway itself stalled: "
+            "bus I/O is synchronous on the event loop, so a slow or retrying serial read "
+            "blocks heartbeat handling. Far over (5s+) points at the client instead.",
             gap if gap is not None else float("nan"),
             self.watchdog.timeout_s,
         )

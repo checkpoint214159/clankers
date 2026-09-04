@@ -11,6 +11,7 @@ provisional per robots.yaml until bring-up — see docs/plans/bringup.md).
 
 from __future__ import annotations
 
+import logging
 import math
 from abc import ABC, abstractmethod
 from typing import Any
@@ -26,6 +27,8 @@ from .dynamixel_compat import (
     ticks_delta_to_rad,
     ticks_to_rad,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SCAN_BAUD = 4_000_000  # LEAP builds default; confirmed at scan per robots.yaml comment
 
@@ -388,11 +391,16 @@ class LerobotDynamixelBus(HandBus):
         bus = self._require_connected()
         bus.disable_torque([self._name_by_id[sid] for sid in ids])
 
+    # A sync_read addresses all 16 servos in one transaction, so a single dropped status
+    # packet fails the whole read. Retrying in the SDK is far cheaper than losing the poll.
+    SYNC_READ_RETRIES = 3
+
     def read_state(self) -> dict[int, dict[str, float]]:
         bus = self._require_connected()
-        pos_ticks = bus.sync_read("Present_Position", normalize=False)
-        vel_raw = bus.sync_read("Present_Velocity", normalize=False)
-        cur_raw = bus.sync_read("Present_Current", normalize=False)
+        n = self.SYNC_READ_RETRIES
+        pos_ticks = bus.sync_read("Present_Position", normalize=False, num_retry=n)
+        vel_raw = bus.sync_read("Present_Velocity", normalize=False, num_retry=n)
+        cur_raw = bus.sync_read("Present_Current", normalize=False, num_retry=n)
         out: dict[int, dict[str, float]] = {}
         for sid, name in self._name_by_id.items():
             vel_rev_min = vel_raw[name] * self.VELOCITY_REV_PER_MIN_PER_LSB
@@ -414,10 +422,29 @@ class LerobotDynamixelBus(HandBus):
                 profile.get("acceleration_rev_per_min2", 0)
             ),
         }
+        # The profile is a comfort setting, not a precondition for operating the hand, so a
+        # servo that refuses it must not stop the gateway coming up. A latched hardware fault
+        # makes a servo reject writes until it is rebooted (ADR-0004), and refusing to start
+        # would leave the operator with no way to see the fault or clear it.
+        failed: dict[int, str] = {}
         for reg, value in values.items():
-            for name in self._name_by_id.values():
-                bus.write(reg, name, int(value), normalize=False)
-        return {"velocity": values["Profile_Velocity"], "acceleration": values["Profile_Acceleration"]}
+            for sid, name in self._name_by_id.items():
+                try:
+                    bus.write(reg, name, int(value), normalize=False)
+                except (RuntimeError, ConnectionError, OSError) as exc:
+                    failed[sid] = f"{reg}: {exc}"
+        if failed:
+            logger.warning(
+                "motion profile not applied to %d servo(s) %s — they will move at full speed "
+                "toward each goal until this is fixed. A hardware error latches until the "
+                "servo is rebooted; check `error_status` and use the `reboot` op. Details: %s",
+                len(failed), sorted(failed), failed,
+            )
+        return {
+            "velocity": values["Profile_Velocity"],
+            "acceleration": values["Profile_Acceleration"],
+            "failed_servo_ids": sorted(failed),
+        }
 
     def read_torque_enabled(self, ids: list[int]) -> dict[int, bool]:
         bus = self._require_connected()
@@ -441,9 +468,10 @@ class LerobotDynamixelBus(HandBus):
 
     def read_health(self) -> dict[int, dict[str, float]]:
         bus = self._require_connected()
-        temp_raw = bus.sync_read("Present_Temperature", normalize=False)
-        volt_raw = bus.sync_read("Present_Input_Voltage", normalize=False)
-        err_raw = bus.sync_read("Hardware_Error_Status", normalize=False)
+        n = self.SYNC_READ_RETRIES
+        temp_raw = bus.sync_read("Present_Temperature", normalize=False, num_retry=n)
+        volt_raw = bus.sync_read("Present_Input_Voltage", normalize=False, num_retry=n)
+        err_raw = bus.sync_read("Hardware_Error_Status", normalize=False, num_retry=n)
         return {
             sid: {
                 "temp_c": float(temp_raw[name]),

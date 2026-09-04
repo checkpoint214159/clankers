@@ -24,8 +24,10 @@ from clankers.config import load_robots
 
 logger = logging.getLogger(__name__)
 
-# Most-likely-first: LEAP builds default to 4M; factory-fresh Dynamixels ship at 57600.
-PROBE_BAUDS = (4_000_000, 1_000_000, 57_600, 2_000_000, 3_000_000, 115_200)
+# Most-likely-first. 1M is what this hand's servos were rewritten to (robots.yaml hand.baud);
+# 57600 stays because a factory-fresh REPLACEMENT servo ships at that rate, and during a
+# repair the whole point of a scan is to find the part that is not answering yet.
+PROBE_BAUDS = (1_000_000, 57_600, 4_000_000)
 
 # A marginal daisy chain answers intermittently, so one ping proves nothing.
 DEFAULT_REPEAT = 10

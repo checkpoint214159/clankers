@@ -26,8 +26,14 @@ def test_classify_unknown() -> None:
     assert classify_device("/dev/cu.Bluetooth-Incoming-Port").kind == "unknown"
 
 
-def test_probe_bauds_start_with_leap_default() -> None:
-    assert PROBE_BAUDS[0] == 4_000_000  # LEAP builds default to 4M
+def test_probe_bauds_lead_with_the_configured_rate() -> None:
+    # Probing the rate the hand is actually set to first keeps a scan fast; the factory
+    # default has to stay in the list so a fresh replacement servo is still discoverable.
+    import yaml
+    from clankers.config.loader import robots_yaml_path
+
+    configured = int(yaml.safe_load(robots_yaml_path().read_text())["hand"]["baud"])
+    assert PROBE_BAUDS[0] == configured
     assert 57_600 in PROBE_BAUDS  # factory-fresh servos
 
 

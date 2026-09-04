@@ -50,6 +50,7 @@ class HandGatewayServer:
         self._watchdog_task: asyncio.Task[None] | None = None
         self._last_health: list[dict[str, Any]] | None = None
         self._last_health_ts: float = 0.0
+        self._read_failures = 0
         self.service.on_event = self._on_service_event
 
     async def start(self) -> None:
@@ -171,6 +172,8 @@ class HandGatewayServer:
         if self._push_task is None and any(c.state_stream_enabled for c in self._connections.values()):
             self._push_task = asyncio.ensure_future(self._push_loop())
 
+    READ_FAILURE_ALERT = 5  # consecutive failed polls before escalating from warn to error
+
     async def _push_loop(self) -> None:
         poll = self.service.hand_cfg.poll
         joints_dt = 1.0 / float(poll["state_hz"])
@@ -180,10 +183,42 @@ class HandGatewayServer:
                 start = time.monotonic()
                 self.service.watchdog.check()  # on_trip (if any) fires synchronously here
 
-                joints = self.service.joints_payload(self.service.bus.read_state())
-                if self._last_health is None or (start - self._last_health_ts) >= health_dt:
-                    self._last_health = self.service.health_payload(self.service.bus.read_health())
-                    self._last_health_ts = start
+                # A transient bus error must not kill telemetry for the rest of the
+                # session. This loop is also one of the two places the watchdog is polled,
+                # so letting the task die takes supervision down with the state stream.
+                try:
+                    joints = self.service.joints_payload(self.service.bus.read_state())
+                    if self._last_health is None or (start - self._last_health_ts) >= health_dt:
+                        self._last_health = self.service.health_payload(
+                            self.service.bus.read_health()
+                        )
+                        self._last_health_ts = start
+                except (ConnectionError, OSError) as exc:
+                    self._read_failures += 1
+                    logger.warning(
+                        "hand state poll failed (%d in a row): %s",
+                        self._read_failures, exc,
+                    )
+                    if self._read_failures == self.READ_FAILURE_ALERT:
+                        logger.error(
+                            "hand bus has failed %d polls in a row — check the chain; "
+                            "telemetry is stale but the gateway is still up",
+                            self._read_failures,
+                        )
+                    await asyncio.sleep(joints_dt)
+                    continue
+                self._read_failures = 0
+
+                # Bus I/O is synchronous and runs on this event loop, so however long a poll
+                # takes is time the loop cannot process an incoming heartbeat. If a poll
+                # approaches the watchdog timeout, the gateway is about to trip itself.
+                poll_s = time.monotonic() - start
+                if poll_s > self.service.watchdog.timeout_s / 2:
+                    logger.warning(
+                        "hand state poll blocked the event loop for %.2fs (watchdog timeout "
+                        "%.1fs) — heartbeats cannot be served while a poll is in flight",
+                        poll_s, self.service.watchdog.timeout_s,
+                    )
 
                 msg = {"type": "state", "data": {"ts": start, "joints": joints, "health": self._last_health}}
                 await self._broadcast(json.dumps(msg), subscribers_only=True)
