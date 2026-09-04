@@ -531,4 +531,54 @@ describe('CombinedPage', () => {
     fireEvent.change(screen.getByLabelText('index_mcp_flex'), { target: { value: '0.3' } });
     await waitFor(() => expect(hand.ops.pos).toHaveBeenCalled());
   });
+
+  it('keeps a curl preset when telemetry arrives before you send it', async () => {
+    // Mirroring rewrites all 16 hand targets from measured positions on every state push.
+    // Without pausing it for an unsent edit, a preset is wiped within one poll and never
+    // reaches the robot -- which looks exactly like "curl hand does nothing".
+    useArm({}, false);
+    const hand = makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.0 }] });
+    useHandGatewayContext.mockReturnValue(hand);
+    const { rerender } = render(<CombinedPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /curl hand/i }));
+    const curled = viewerJoints().index_mcp_flex;
+    expect(curled).not.toBeCloseTo(0);
+
+    // A telemetry push lands, reporting the hand still physically at rest.
+    useHandGatewayContext.mockReturnValue(
+      makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.0 }] }),
+    );
+    rerender(<CombinedPage />);
+    expect(viewerJoints().index_mcp_flex).toBeCloseTo(curled);
+  });
+
+  it('says a hand pose is unsent, and can discard it back to measured', async () => {
+    useArm({}, false);
+    useHandGatewayContext.mockReturnValue(
+      makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.25 }] }),
+    );
+    render(<CombinedPage />);
+    await waitFor(() => expect(viewerJoints().index_mcp_flex).toBeCloseTo(0.25));
+
+    fireEvent.click(screen.getByRole('button', { name: /curl hand/i }));
+    expect(screen.getByText(/unsent hand pose/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /discard and re-sync from the hand/i }));
+    await waitFor(() => expect(viewerJoints().index_mcp_flex).toBeCloseTo(0.25));
+  });
+
+  it('resumes mirroring once the pose has been sent', async () => {
+    useArm({}, false);
+    const hand = makeHand({ connected: true, joints: [{ servo_id: 1, pos: 0.25 }] });
+    useHandGatewayContext.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /curl hand/i }));
+    expect(screen.getByText(/unsent hand pose/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /send hand pose/i }));
+    await waitFor(() => expect(hand.ops.pos).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(/unsent hand pose/i)).toBeNull());
+  });
 });

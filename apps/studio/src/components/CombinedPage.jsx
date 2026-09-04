@@ -83,20 +83,34 @@ export function CombinedPage() {
   const handReady = hand.connected && !busy;
   const canPoseHand = handReady && MODEL.hand.calibrated;
 
+  // An unsent edit must survive the next telemetry push. Mirroring overwrites all 16 hand
+  // targets with measured positions every time state arrives, so without this a preset or a
+  // slider drag is wiped within one poll and never reaches the robot -- which reads exactly
+  // like "curl hand does nothing".
+  const [dirty, setDirty] = React.useState({ arm: false, hand: false });
+  const markDirty = React.useCallback(
+    (side) => setDirty((prev) => (prev[side] ? prev : { ...prev, [side]: true })),
+    [],
+  );
+  const clearDirty = React.useCallback(
+    (side) => setDirty((prev) => (prev[side] ? { ...prev, [side]: false } : prev)),
+    [],
+  );
+
   // Live driving and live mirroring pull the same sliders in opposite directions -- the
   // operator drags, the hand reports where it actually got to, the slider jumps back. While
   // the hand is being driven live, measurement yields to intent.
   React.useEffect(() => {
-    if (!mirrorLive || handLive || !hand.connected) return;
+    if (!mirrorLive || handLive || dirty.hand || !hand.connected) return;
     setTargets((prev) => applyLiveHandPositions(prev, MODEL, hand.joints));
-  }, [mirrorLive, handLive, hand.connected, hand.joints]);
+  }, [mirrorLive, handLive, dirty.hand, hand.connected, hand.joints]);
 
   // Same for the arm. Without it the arm sliders read 0 while the arm is elsewhere, and
   // "Send arm pose" would command a pose the operator never chose.
   React.useEffect(() => {
-    if (!mirrorLive || armLive || !armConn?.connected) return;
+    if (!mirrorLive || armLive || dirty.arm || !armConn?.connected) return;
     setTargets((prev) => applyLiveArmPositions(prev, MODEL, arm?.robotArmJointRows));
-  }, [mirrorLive, armLive, armConn?.connected, arm?.robotArmJointRows]);
+  }, [mirrorLive, armLive, dirty.arm, armConn?.connected, arm?.robotArmJointRows]);
 
   const handTargetsFrom = React.useCallback((source, only = null) => {
     const out = {};
@@ -181,11 +195,14 @@ export function CombinedPage() {
       setTargets(next);
       if (ARM_NAMES.has(name)) {
         if (armLive && armReady) armSender.queue({ targets: next, only: name });
+        else markDirty('arm');
       } else if (handLive && canPoseHand) {
         handSender.queue({ targets: next, only: name });
+      } else {
+        markDirty('hand');
       }
     },
-    [armLive, armReady, handLive, canPoseHand, armSender, handSender],
+    [armLive, armReady, handLive, canPoseHand, armSender, handSender, markDirty],
   );
 
   const liveByName = React.useMemo(() => {
@@ -210,9 +227,13 @@ export function CombinedPage() {
     }
   }, []);
 
-  const applyPreset = React.useCallback((preset) => {
-    setTargets((prev) => ({ ...prev, ...buildPresetTargets(MODEL.hand, preset) }));
-  }, []);
+  const applyPreset = React.useCallback(
+    (preset) => {
+      setTargets((prev) => ({ ...prev, ...buildPresetTargets(MODEL.hand, preset) }));
+      markDirty('hand');
+    },
+    [markDirty],
+  );
 
 
   /**
@@ -237,9 +258,11 @@ export function CombinedPage() {
         if (armReady) await sendArmTargets(next, { force: true });
         if (canPoseHand) await hand.ops.pos(handTargetsFrom(next));
       });
+      if (armReady) clearDirty('arm');
+      if (canPoseHand) clearDirty('hand');
       if (skipped.length) setNote((n) => `${n} — skipped ${skipped.join(', ')}`);
     },
-    [armReady, canPoseHand, sendArmTargets, hand.ops, hand.connected, handTargetsFrom, run],
+    [armReady, canPoseHand, sendArmTargets, hand.ops, hand.connected, handTargetsFrom, run, clearDirty],
   );
 
   // Enable both sides in one press. Debugging is mostly "enable everything, go to zero,
@@ -270,8 +293,11 @@ export function CombinedPage() {
   }, [sendToRobot]);
 
   const sendHandPose = React.useCallback(
-    () => run('send hand pose', () => hand.ops.pos(handTargetsFrom(targets))),
-    [hand.ops, handTargetsFrom, targets, run],
+    async () => {
+      await run('send hand pose', () => hand.ops.pos(handTargetsFrom(targets)));
+      clearDirty('hand');
+    },
+    [hand.ops, handTargetsFrom, targets, run, clearDirty],
   );
 
   const jog = React.useCallback(
@@ -376,19 +402,34 @@ export function CombinedPage() {
               disabled={!armReady}
               onChange={(e) => {
                 setArmLive(e.target.checked);
-                if (!e.target.checked) armSender.stop();
+                if (e.target.checked) clearDirty('arm');
+                else armSender.stop();
               }}
               aria-label="live arm"
             />{' '}
             live
           </label>
           <button
-            onClick={() => run('send arm pose', () => sendArmTargets(targetsRef.current, { force: true }))}
+            onClick={async () => {
+              await run('send arm pose', () =>
+                sendArmTargets(targetsRef.current, { force: true }),
+              );
+              clearDirty('arm');
+            }}
             disabled={!armReady || busy}
           >
             Send arm pose
           </button>
         </div>
+        {dirty.arm && (
+          <p className="warnBanner" role="status">
+            Unsent arm pose — mirroring is paused. Press <strong>Send arm pose</strong>, or{' '}
+            <button className="ghostBtn small" onClick={() => clearDirty('arm')} disabled={busy}>
+              discard and re-sync from the arm
+            </button>
+            .
+          </p>
+        )}
         {MODEL.arm.map((j) => (
           <JointSlider
             key={j.name}
@@ -436,7 +477,8 @@ export function CombinedPage() {
               disabled={!canPoseHand}
               onChange={(e) => {
                 setHandLive(e.target.checked);
-                if (!e.target.checked) handSender.stop();
+                if (e.target.checked) clearDirty('hand');
+                else handSender.stop();
               }}
               aria-label="live hand"
             />{' '}
@@ -469,6 +511,21 @@ export function CombinedPage() {
             {anyHandTorqueOn ? ' Torque is on — disable it first.' : ''}
           </span>
         </div>
+
+        {dirty.hand && (
+          <p className="warnBanner" role="status">
+            Unsent hand pose — mirroring is paused so your edit is not overwritten by the
+            next telemetry update. Press <strong>Send hand pose</strong> to apply it, or{' '}
+            <button
+              className="ghostBtn small"
+              onClick={() => clearDirty('hand')}
+              disabled={busy}
+            >
+              discard and re-sync from the hand
+            </button>
+            .
+          </p>
+        )}
 
         {handLive && mirrorLive && (
           <p className="muted">
