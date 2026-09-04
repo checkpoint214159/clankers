@@ -581,4 +581,35 @@ describe('CombinedPage', () => {
     await waitFor(() => expect(hand.ops.pos).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByText(/unsent hand pose/i)).toBeNull());
   });
+
+  it('offers a reboot for latched faults, since they refuse to enable until cleared', async () => {
+    useArm({}, false);
+    const hand = makeHand({
+      connected: true,
+      health: [
+        { servo_id: 1, faults: ['undervoltage'] },
+        { servo_id: 2, faults: [] },
+        { servo_id: 12, faults: ['undervoltage'] },
+      ],
+    });
+    useHandGatewayContext.mockReturnValue(hand);
+    render(<CombinedPage />);
+
+    expect(screen.getByText(/latched hardware faults/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /reboot faulted servos/i }));
+
+    // Torque drops first: each servo goes limp as it resets.
+    await waitFor(() => expect(hand.ops.disable).toHaveBeenCalled());
+    await waitFor(() => expect(hand.ops.reboot).toHaveBeenCalledTimes(2));
+    expect(hand.ops.reboot.mock.calls.map((c) => c[0])).toEqual([1, 12]);
+  });
+
+  it('says nothing about faults when every servo is healthy', () => {
+    useArm({}, false);
+    useHandGatewayContext.mockReturnValue(
+      makeHand({ connected: true, health: [{ servo_id: 1, faults: [] }] }),
+    );
+    render(<CombinedPage />);
+    expect(screen.queryByText(/latched hardware faults/i)).toBeNull();
+  });
 });

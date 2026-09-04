@@ -329,6 +329,28 @@ export function CombinedPage() {
     });
   }, [hand.ops, handZeroUndo, run]);
 
+  // A hardware fault LATCHES: the servo blinks red and refuses commands until rebooted.
+  // The UI said so but offered no way to do it, which left the operator with a hand that
+  // would not enable and nothing to press.
+  const faultedServos = React.useMemo(
+    () =>
+      (hand.health || [])
+        .filter((h) => Array.isArray(h?.faults) && h.faults.length > 0)
+        .map((h) => ({ servoId: Number(h.servo_id), faults: h.faults })),
+    [hand.health],
+  );
+
+  const rebootFaulted = React.useCallback(async () => {
+    const ids = faultedServos.map((f) => f.servoId);
+    if (ids.length === 0) return;
+    await run(`reboot ${ids.length} faulted servo(s)`, async () => {
+      // Torque off first: each servo goes limp as it resets, so this must not be a
+      // surprise mid-hold.
+      await hand.ops.disable();
+      for (const servoId of ids) await hand.ops.reboot(servoId);
+    });
+  }, [faultedServos, hand.ops, run]);
+
   const canSendPose = armReady || canPoseHand;
 
   return (
@@ -511,6 +533,25 @@ export function CombinedPage() {
             {anyHandTorqueOn ? ' Torque is on — disable it first.' : ''}
           </span>
         </div>
+
+        {faultedServos.length > 0 && (
+          <p className="warnBanner" role="status">
+            {faultedServos.length} servo(s) have latched hardware faults and will refuse to
+            enable:{' '}
+            <code>
+              {faultedServos.map((f) => `${f.servoId}: ${f.faults.join('/')}`).join(', ')}
+            </code>
+            . A fault latches until the servo is rebooted.{' '}
+            <button onClick={rebootFaulted} disabled={!hand.connected || busy}>
+              Reboot faulted servos
+            </button>{' '}
+            <span className="muted">
+              Torque drops first, so support the hand if it is holding a pose. If a fault
+              returns immediately the cause is still present — undervoltage usually means the
+              rail is sagging under stall current.
+            </span>
+          </p>
+        )}
 
         {dirty.hand && (
           <p className="warnBanner" role="status">
