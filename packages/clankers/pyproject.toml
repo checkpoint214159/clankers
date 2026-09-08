@@ -25,8 +25,20 @@ viz = [
 # Webcam teleop demo (clankers-teleop-demo). Retarget math itself is pure numpy;
 # these are only needed for live camera tracking.
 teleop = [
+    # NOTE: clankers.teleop.camera is written against the legacy `mp.solutions.hands` API,
+    # which NO mediapipe wheel available for Python 3.13 still ships -- 0.10.35's own
+    # __init__ exposes only tasks/Image/ImageFormat, same as 1.x. Pinning does not recover
+    # it; `clankers-teleop-demo` needs porting to the Tasks API (mp.tasks.vision.
+    # HandLandmarker, which also needs a .task model asset). scripts/camera_preview.py
+    # needs none of this and works today.
     "mediapipe>=0.10.14",
-    "opencv-python>=4.10",
+    # contrib rather than plain opencv-python because mediapipe depends on contrib, and
+    # opencv-python / opencv-contrib-python / opencv-python-headless all install the same
+    # `cv2` package and overwrite each other. lerobot still pulls headless transitively, so
+    # if `import cv2` ever yields an empty namespace package, repair with:
+    #   uv pip uninstall opencv-python opencv-python-headless opencv-contrib-python
+    #   uv pip install --reinstall opencv-contrib-python
+    "opencv-contrib-python>=4.10",
 ]
 
 [project.scripts]
