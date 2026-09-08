@@ -60,7 +60,7 @@ ADJUST: dict[str, tuple[str, float]] = {
 RESOLUTIONS = [(640, 480), (800, 600), (1280, 720), (1920, 1080)]
 
 HELP = """keys:  q quit   h help   p print props   w write snapshot
-       r cycle resolution   a toggle autofocus
+       r cycle resolution   a toggle autofocus   x swap red/blue
        b/B brightness  c/C contrast  s/S saturation
        g/G gain        e/E exposure  f/F focus     (uppercase decreases)"""
 
@@ -115,7 +115,8 @@ def probe(max_index: int, width, height, fps) -> int:
     return found
 
 
-def draw_overlay(frame, index: int, props: dict[str, float], measured_fps: float):
+def draw_overlay(frame, index: int, props: dict[str, float], measured_fps: float,
+                 swap_rb: bool = False):
     lines = [
         (
             f"cam {index}   {int(props['width'])}x{int(props['height'])}   "
@@ -130,6 +131,8 @@ def draw_overlay(frame, index: int, props: dict[str, float], measured_fps: float
             f"focus {props['focus']:.0f}  (autofocus {props['autofocus']:.0f})"
         ),
     ]
+    if swap_rb:
+        lines.append("R/B swapped (x to toggle)")
     for n, text in enumerate(lines):
         y = 24 + n * 22
         # Draw twice: dark stroke under light fill stays readable on any scene.
@@ -148,12 +151,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--camera", type=int, action="append", default=None,
                     help="camera index; repeat the flag for several windows")
     ap.add_argument("--list", action="store_true", help="probe indices and exit")
-    ap.add_argument("--max-index", type=int, default=4,
+    ap.add_argument("--max-index", type=int, default=3,
                     help="highest index to probe; OpenCV prints its own noise past the last camera")
     ap.add_argument("--width", type=int, default=None)
     ap.add_argument("--height", type=int, default=None)
     ap.add_argument("--fps", type=float, default=None)
     ap.add_argument("--snapshot-dir", default=".", help="where 'w' writes stills")
+    ap.add_argument("--swap-rb", action="store_true",
+                    help="swap red/blue: for cameras that hand back RGB where cv2 expects BGR")
     args = ap.parse_args(argv)
 
     if args.list or not args.camera:
@@ -172,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(HELP)
     res_idx = 0
+    swap_rb = args.swap_rb
+    last_frames: dict[int, object] = {}
     frames = 0
     measured = 0.0
     t0 = time.monotonic()
@@ -183,8 +190,15 @@ def main(argv: list[str] | None = None) -> int:
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     continue
+                # cv2 works in BGR end to end: VideoCapture delivers it and imshow/imwrite
+                # expect it. Some UVC cameras hand back RGB anyway, which shows up as red
+                # and blue swapped. Fix it here, at the source, so the preview and any
+                # snapshot agree rather than only the thing being looked at.
+                if swap_rb:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                last_frames[index] = frame.copy()
                 props = read_props(cap)
-                draw_overlay(frame, index, props, measured)
+                draw_overlay(frame, index, props, measured, swap_rb)
                 cv2.imshow(f"cam {index}", frame)
 
             frames += 1
@@ -200,7 +214,10 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             ch = chr(key)
 
-            if ch == "h":
+            if ch == "x":
+                swap_rb = not swap_rb
+                print(f"swap R/B: {'on' if swap_rb else 'off'}")
+            elif ch == "h":
                 print(HELP)
             elif ch == "p":
                 for index, cap in caps.items():
@@ -209,12 +226,13 @@ def main(argv: list[str] | None = None) -> int:
             elif ch == "w":
                 snapshot_dir.mkdir(parents=True, exist_ok=True)
                 stamp = time.strftime("%Y%m%d-%H%M%S")
-                for index, cap in caps.items():
-                    ok, frame = cap.read()
-                    if ok and frame is not None:
-                        path = snapshot_dir / f"cam{index}-{stamp}.png"
-                        cv2.imwrite(str(path), frame)
-                        print(f"wrote {path}")
+                for index in caps:
+                    frame = last_frames.get(index)
+                    if frame is None:
+                        continue
+                    path = snapshot_dir / f"cam{index}-{stamp}.png"
+                    cv2.imwrite(str(path), frame)
+                    print(f"wrote {path}")
             elif ch == "r":
                 res_idx = (res_idx + 1) % len(RESOLUTIONS)
                 w, h = RESOLUTIONS[res_idx]
