@@ -57,12 +57,27 @@ ADJUST: dict[str, tuple[str, float]] = {
     "f": ("focus", +5.0), "F": ("focus", -5.0),
 }
 
+# Software fallbacks, applied to the frame after capture.
+#
+# OpenCV's macOS AVFoundation backend implements NO image controls: brightness, contrast,
+# gain, exposure and the rest all read -1 ("unsupported") and ignore writes. On Linux the
+# V4L2 backend does implement them, so the same keys drive the real camera there. These
+# adjustments cost image quality -- brightening underexposed pixels amplifies noise, it does
+# not recover detail the sensor never captured -- so they are a way to see, not a way to fix.
+SW_LIMITS = {"brightness": (-255.0, 255.0), "contrast": (0.1, 8.0), "gamma": (0.1, 4.0)}
+SW_ADJUST: dict[str, tuple[str, float]] = {
+    "b": ("brightness", +8.0), "B": ("brightness", -8.0),
+    "c": ("contrast", +0.1), "C": ("contrast", -0.1),
+    "m": ("gamma", +0.1), "M": ("gamma", -0.1),
+}
+
 RESOLUTIONS = [(640, 480), (800, 600), (1280, 720), (1920, 1080)]
 
 HELP = """keys:  q quit   h help   p print props   w write snapshot
-       r cycle resolution   a toggle autofocus   x swap red/blue
-       b/B brightness  c/C contrast  s/S saturation
-       g/G gain        e/E exposure  f/F focus     (uppercase decreases)"""
+       x swap red/blue    n auto-level (one shot)    0 reset image adjustments
+       b/B brightness     c/C contrast     m/M gamma     (uppercase decreases)
+       r cycle resolution   a toggle autofocus
+       s/S saturation  g/G gain  e/E exposure  f/F focus  (hardware only)"""
 
 
 def open_camera(index: int, width=None, height=None, fps=None):
@@ -87,6 +102,42 @@ def set_prop(cap, name: str, value: float) -> tuple[bool, float]:
     cap.set(PROPS[name], float(value))
     got = cap.get(PROPS[name])
     return abs(got - value) < 1e-6, got
+
+
+def supported_props(cap) -> set[str]:
+    """Which properties this backend actually implements. -1 means "no such control"."""
+    return {name for name, prop in PROPS.items() if cap.get(prop) != -1}
+
+
+def apply_software(frame, sw: dict[str, float]):
+    """Brightness/contrast/gamma applied to the pixels, for backends with no real controls."""
+    import numpy as np
+
+    out = frame
+    if sw["contrast"] != 1.0 or sw["brightness"] != 0.0:
+        out = cv2.convertScaleAbs(out, alpha=sw["contrast"], beta=sw["brightness"])
+    if abs(sw["gamma"] - 1.0) > 1e-3:
+        inv = 1.0 / max(sw["gamma"], 1e-3)
+        lut = np.clip(((np.arange(256) / 255.0) ** inv) * 255.0, 0, 255).astype("uint8")
+        out = cv2.LUT(out, lut)
+    return out
+
+
+def auto_level(frame, sw: dict[str, float]) -> dict[str, float]:
+    """Pick brightness/contrast that stretch this frame to a full range, once.
+
+    Deliberately a one-shot suggestion rather than a running auto-gain: a control that keeps
+    moving on its own is useless for judging whether the camera itself is set up correctly.
+    """
+    import numpy as np
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    lo, hi = np.percentile(gray, (1, 99))
+    if hi - lo < 1:
+        return sw
+    contrast = float(np.clip(255.0 / (hi - lo), *SW_LIMITS["contrast"]))
+    brightness = float(np.clip(-lo * contrast, *SW_LIMITS["brightness"]))
+    return {**sw, "contrast": contrast, "brightness": brightness}
 
 
 def probe(max_index: int, width, height, fps) -> int:
@@ -116,7 +167,7 @@ def probe(max_index: int, width, height, fps) -> int:
 
 
 def draw_overlay(frame, index: int, props: dict[str, float], measured_fps: float,
-                 swap_rb: bool = False):
+                 swap_rb: bool = False, sw: dict[str, float] | None = None):
     lines = [
         (
             f"cam {index}   {int(props['width'])}x{int(props['height'])}   "
@@ -133,6 +184,12 @@ def draw_overlay(frame, index: int, props: dict[str, float], measured_fps: float
     ]
     if swap_rb:
         lines.append("R/B swapped (x to toggle)")
+    if sw and (sw["brightness"] or sw["contrast"] != 1.0 or sw["gamma"] != 1.0):
+        # Labelled SOFTWARE so it is never mistaken for the camera being set up correctly.
+        lines.append(
+            f"SOFTWARE bright {sw['brightness']:+.0f}  contrast {sw['contrast']:.2f}  "
+            f"gamma {sw['gamma']:.2f}   (0 resets)"
+        )
     for n, text in enumerate(lines):
         y = 24 + n * 22
         # Draw twice: dark stroke under light fill stays readable on any scene.
@@ -178,7 +235,19 @@ def main(argv: list[str] | None = None) -> int:
     print(HELP)
     res_idx = 0
     swap_rb = args.swap_rb
+    sw = {"brightness": 0.0, "contrast": 1.0, "gamma": 1.0}
+    supported = {i: supported_props(c) for i, c in caps.items()}
+    image_ctrls = sorted(set().union(*supported.values()) - {"width", "height", "fps"})
+    if not image_ctrls:
+        print(
+            f"\nNOTE: the {next(iter(caps.values())).getBackendName()} backend implements no "
+            "image controls -- brightness/contrast/gain/exposure/focus all read -1 and ignore "
+            "writes. b/c/m adjust the captured frame in software instead. For real exposure "
+            "control on macOS use uvc-util or AVFoundation via pyobjc; on Linux the V4L2 "
+            "backend drives these keys directly.\n"
+        )
     last_frames: dict[int, object] = {}
+    raw_frames: dict[int, object] = {}
     frames = 0
     measured = 0.0
     t0 = time.monotonic()
@@ -196,9 +265,11 @@ def main(argv: list[str] | None = None) -> int:
                 # snapshot agree rather than only the thing being looked at.
                 if swap_rb:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                raw_frames[index] = frame
+                frame = apply_software(frame, sw)
                 last_frames[index] = frame.copy()
                 props = read_props(cap)
-                draw_overlay(frame, index, props, measured, swap_rb)
+                draw_overlay(frame, index, props, measured, swap_rb, sw)
                 cv2.imshow(f"cam {index}", frame)
 
             frames += 1
@@ -250,13 +321,35 @@ def main(argv: list[str] | None = None) -> int:
                     ok, got = set_prop(cap, "autofocus", 0.0 if now else 1.0)
                     print(f"cam {index}: autofocus -> {got:g}"
                           f"{'' if ok else '  <- backend ignored it'}")
+            elif ch == "n":
+                for index in caps:
+                    raw = raw_frames.get(index)
+                    if raw is not None:
+                        sw = auto_level(raw, sw)
+                        print(f"auto-level from cam {index}: contrast {sw['contrast']:.2f}, "
+                              f"brightness {sw['brightness']:+.0f}")
+                        break
+            elif ch == "0":
+                sw = {"brightness": 0.0, "contrast": 1.0, "gamma": 1.0}
+                print("image adjustments reset")
+            elif ch in SW_ADJUST and (not image_ctrls or ch in "mM"):
+                # Where the backend has no image controls these keys drive the software
+                # pipeline instead. Gamma is software-only, so it always does.
+                name, delta = SW_ADJUST[ch]
+                lo, hi = SW_LIMITS[name]
+                sw[name] = float(min(hi, max(lo, sw[name] + delta)))
+                print(f"software {name} -> {sw[name]:.2f}")
             elif ch in ADJUST:
                 name, delta = ADJUST[ch]
                 for index, cap in caps.items():
+                    if name not in supported[index]:
+                        print(f"cam {index}: {name} is not supported by the "
+                              f"{cap.getBackendName()} backend")
+                        continue
                     target = cap.get(PROPS[name]) + delta
                     ok, got = set_prop(cap, name, target)
                     print(f"cam {index}: {name} -> {got:g}"
-                          f"{'' if ok else '  <- backend ignored/clamped it'}")
+                          f"{'' if ok else '  <- backend clamped it'}")
     finally:
         for cap in caps.values():
             cap.release()
