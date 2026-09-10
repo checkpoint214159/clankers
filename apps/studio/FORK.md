@@ -40,3 +40,17 @@ Set the controller's address once, when starting the dev server:
 That seeds both gateway URLs (arm :9002, hand :9003). Either can also be retyped in the
 Gateways panel while disconnected; the hand URL is remembered per browser in localStorage,
 so it survives a reload without needing the env var again.
+
+### The motorbridge token
+
+If the arm gateway was started with a shared token it must be sent as the
+`?motorbridge_ws_token=` query param, or the handshake is refused with no useful clue. Put
+it in `apps/studio/.env.local` (gitignored via `*.local`, never commit it):
+
+    VITE_ROBOT_HOST=192.168.2.2
+    VITE_MOTORBRIDGE_WS_TOKEN=...
+
+Vite only exposes `VITE_`-prefixed vars, and reads the file at startup -- restart the dev
+server after editing. Supplying a token also defaults the "Arm token" checkbox on, since a
+token that is present but switched off fails the same opaque way as no token at all. Both
+can still be overridden in the Gateways panel, and whatever is typed there wins.

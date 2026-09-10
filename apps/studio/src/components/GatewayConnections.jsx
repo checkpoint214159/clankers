@@ -103,6 +103,39 @@ export function GatewayConnections() {
         onDisconnect={hand.disconnect}
       />
 
+      {/* motorbridge's gateway can require a shared token. This lived in the old
+          ConnectionPanel; without it here, a token-protected arm gateway is unreachable and
+          the only symptom is the handshake being refused. */}
+      <div className="gatewayRow gatewayTokenRow">
+        <div className="gatewayLabel">
+          <label htmlFor="arm-token">
+            <input
+              id="arm-token-enabled"
+              type="checkbox"
+              checked={Boolean(conn?.wsTokenEnabled)}
+              onChange={(e) => conn?.setWsTokenEnabled?.(e.target.checked)}
+              aria-label="require arm token"
+            />{' '}
+            Arm token
+          </label>
+        </div>
+        <input
+          id="arm-token"
+          aria-label="arm token"
+          type="password"
+          placeholder="motorbridge_ws_token"
+          value={conn?.wsToken ?? ''}
+          onChange={(e) => conn?.setWsToken?.(e.target.value)}
+          disabled={!conn?.wsTokenEnabled || conn?.connected}
+          spellCheck={false}
+        />
+        <span className="muted">
+          {conn?.wsTokenEnabled
+            ? 'sent as ?motorbridge_ws_token='
+            : 'off — enable if the gateway was started with a token'}
+        </span>
+      </div>
+
       {hand.lastError && <p className="warnBanner">hand gateway: {hand.lastError}</p>}
       {hand.watchdogTrip && (
         <p className="warnBanner" role="status">

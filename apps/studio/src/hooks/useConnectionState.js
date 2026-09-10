@@ -14,12 +14,17 @@ export function useConnectionState({ pushLog, setStateSnapshot, onGatewayState, 
   });
   const [channel, setChannel] = useState(APP_DEFAULTS.channel);
   const [scanTimeoutMs, setScanTimeoutMs] = useState(APP_DEFAULTS.scanTimeoutMs);
+  // Default the toggle on when a token was supplied by the environment: someone who set
+  // VITE_MOTORBRIDGE_WS_TOKEN plainly intends to use it, and a token that is present but
+  // switched off fails as an opaque handshake rejection.
   const [wsTokenEnabled, setWsTokenEnabled] = usePersistedState(
     LS_WS_TOKEN_ENABLED_KEY,
-    false,
+    Boolean(APP_DEFAULTS.wsToken),
     (cached) => Boolean(cached)
   );
-  const [wsToken, setWsToken] = usePersistedState(LS_WS_TOKEN_KEY, '', (cached) => String(cached ?? ''));
+  const [wsToken, setWsToken] = usePersistedState(LS_WS_TOKEN_KEY, APP_DEFAULTS.wsToken, (cached, fallback) =>
+    String(cached ?? '').trim() || fallback
+  );
 
   const bridge = useGatewayBridge({
     wsUrl,

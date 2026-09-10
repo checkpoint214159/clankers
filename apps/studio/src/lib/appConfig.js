@@ -9,6 +9,11 @@ export const APP_DEFAULTS = {
 export const DEV_SERVER = {
   host: '0.0.0.0',
   port: Number.parseInt(import.meta?.env?.VITE_FACTORY_UI_PORT || '18110', 10) || 18110,
+  // motorbridge's gateway can require a shared token, appended as the
+  // ?motorbridge_ws_token= query param. Seeding it from the environment keeps the secret
+  // out of the repo: put it in apps/studio/.env.local, which .gitignore already covers.
+  // Whatever the operator last typed in the UI still wins over this.
+  wsToken: import.meta?.env?.VITE_MOTORBRIDGE_WS_TOKEN || '',
 };
 
 export const CMD_TIMEOUTS = {

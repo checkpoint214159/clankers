@@ -21,6 +21,10 @@ function setup({ armConnected = false, handStatus = 'disconnected', hand: handOv
     connected: armConnected,
     connectWs: vi.fn(),
     disconnectWs: vi.fn(),
+    wsTokenEnabled: false,
+    wsToken: '',
+    setWsToken: vi.fn(),
+    setWsTokenEnabled: vi.fn(),
   };
   const arm = { armBulkBusy: false, ensureRobotArmCards: vi.fn() };
   const hand = {
@@ -120,5 +124,31 @@ describe('GatewayConnections', () => {
     const input = screen.getByLabelText('Hand url');
     fireEvent.change(input, { target: { value: 'ws://192.168.2.2:9003' } });
     expect(hand.setWsUrl).toHaveBeenCalledWith('ws://192.168.2.2:9003');
+  });
+
+  it('lets a motorbridge token be entered, since the gateway can require one', () => {
+    // This input lived in the old ConnectionPanel. Without it, a token-protected arm
+    // gateway is unreachable and the only symptom is a refused handshake.
+    const { conn } = setup();
+    render(<GatewayConnections />);
+
+    // Off by default, so ticking it turns the requirement on.
+    fireEvent.click(screen.getByLabelText('require arm token'));
+    expect(conn.setWsTokenEnabled).toHaveBeenCalledWith(true);
+
+    cleanup();
+    const { conn: enabled } = setup();
+    enabled.wsTokenEnabled = true;
+    render(<GatewayConnections />);
+    fireEvent.change(screen.getByLabelText('arm token'), { target: { value: 'abc123' } });
+    expect(enabled.setWsToken).toHaveBeenCalledWith('abc123');
+  });
+
+  it('does not render the token in the clear', () => {
+    const { conn } = setup();
+    conn.wsTokenEnabled = true;
+    conn.wsToken = 'supersecret';
+    render(<GatewayConnections />);
+    expect(screen.getByLabelText('arm token').type).toBe('password');
   });
 });
