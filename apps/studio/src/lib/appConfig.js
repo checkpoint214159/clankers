@@ -1,5 +1,7 @@
 export const APP_DEFAULTS = {
-  wsUrl: 'ws://127.0.0.1:9002',
+  // 127.0.0.1 only when brain and controller are the same machine; with the gateways on the
+  // Pi (ADR-0005) set VITE_ROBOT_HOST. The operator can also retype this in the UI.
+  wsUrl: `ws://${import.meta?.env?.VITE_ROBOT_HOST || '127.0.0.1'}:9002`,
   channel: 'can0',
   scanTimeoutMs: '500',
 };

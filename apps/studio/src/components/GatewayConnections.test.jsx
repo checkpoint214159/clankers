@@ -32,6 +32,7 @@ function setup({ armConnected = false, handStatus = 'disconnected', hand: handOv
     clearWatchdogTrip: vi.fn(),
     connect: vi.fn(),
     disconnect: vi.fn(),
+    setWsUrl: vi.fn(),
     ...handOverrides,
   };
   useConnectionContext.mockReturnValue(conn);
@@ -107,5 +108,17 @@ describe('GatewayConnections', () => {
     setup({ hand: { lastError: 'connection refused' } });
     render(<GatewayConnections />);
     expect(screen.getByText(/connection refused/)).toBeTruthy();
+  });
+
+  it('lets the hand gateway be repointed at the controller machine', () => {
+    // Brain and controller are different machines (ADR-0005), so 127.0.0.1 is only right
+    // when they are co-located. This input used to be inert, which made a remote gateway
+    // unreachable from the studio entirely.
+    const { hand } = setup();
+    render(<GatewayConnections />);
+
+    const input = screen.getByLabelText('Hand url');
+    fireEvent.change(input, { target: { value: 'ws://192.168.2.2:9003' } });
+    expect(hand.setWsUrl).toHaveBeenCalledWith('ws://192.168.2.2:9003');
   });
 });

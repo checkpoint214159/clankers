@@ -26,3 +26,17 @@ all of them; it is now Combined + Tasks, and connecting happens inside Combined.
 
 Deleted as unreachable: `ConnectionPanel`, `ScanWorkspace`, `MotorSection`, `MotorCards`,
 `MotorDetailPanel`.
+
+## Pointing the studio at a remote controller (ADR-0005)
+
+The gateways run on the machine that owns the serial buses -- the Pi -- while the studio runs
+on the brain. `127.0.0.1` is therefore only correct when the two happen to be the same
+machine, which is no longer the normal case.
+
+Set the controller's address once, when starting the dev server:
+
+    VITE_ROBOT_HOST=192.168.2.2 npm run dev
+
+That seeds both gateway URLs (arm :9002, hand :9003). Either can also be retyped in the
+Gateways panel while disconnected; the hand URL is remembered per browser in localStorage,
+so it survives a reload without needing the env var again.

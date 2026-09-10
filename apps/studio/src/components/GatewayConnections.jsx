@@ -96,7 +96,7 @@ export function GatewayConnections() {
         label="Hand"
         hint={`LEAP · Dynamixel U2D2 · :${PORTS.hand_gateway_ws ?? 9003}`}
         url={hand.wsUrl}
-        onUrlChange={() => {}}
+        onUrlChange={hand.setWsUrl}
         state={handState}
         statusText={handState}
         onConnect={hand.connect}

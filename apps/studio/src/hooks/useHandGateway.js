@@ -2,7 +2,24 @@ import { useEffect, useRef, useState } from 'react';
 import { WsGatewayClient } from '../wsGatewayClient';
 import robotsConfig from '../generated/robotsConfig.json';
 
-const DEFAULT_HAND_WS_URL = `ws://127.0.0.1:${robotsConfig?.ports?.hand_gateway_ws ?? 9003}`;
+// Brain and controller are different machines (ADR-0005): the gateways run on the Pi that
+// owns the serial buses, so 127.0.0.1 is only right when they happen to be co-located.
+// VITE_ROBOT_HOST bakes in the controller's address at build/dev time; the operator can also
+// retype it in the Gateways panel, and that choice is remembered per browser.
+const HAND_PORT = robotsConfig?.ports?.hand_gateway_ws ?? 9003;
+const ROBOT_HOST = import.meta?.env?.VITE_ROBOT_HOST || '127.0.0.1';
+const LS_HAND_WS_KEY = 'clankers.handWsUrl.v1';
+
+function initialHandWsUrl() {
+  try {
+    const saved = window.localStorage.getItem(LS_HAND_WS_KEY);
+    if (saved) return saved;
+  } catch {
+    // Private windows and blocked site data throw on access; fall through to the default.
+  }
+  return `ws://${ROBOT_HOST}:${HAND_PORT}`;
+}
+
 const HEARTBEAT_MS = 500;
 
 // Same exponential-backoff-with-jitter shape as useGatewayBridge, generalized: no channel/
@@ -19,7 +36,19 @@ function reconnectDelayMs(attempt) {
  * Tracks live joint/health state pushes, runs the required heartbeat while any servo is
  * enabled, and surfaces watchdog_trip events for the UI to display (never auto-clears one —
  * ADR-0004 requires an explicit operator ack via the reboot op). */
-export function useHandGateway({ wsUrl = DEFAULT_HAND_WS_URL, heartbeatMs = HEARTBEAT_MS } = {}) {
+export function useHandGateway({ wsUrl: fixedWsUrl, heartbeatMs = HEARTBEAT_MS } = {}) {
+  // Overridable by the caller (tests pin it); otherwise operator-editable and remembered.
+  const [storedWsUrl, setStoredWsUrl] = useState(initialHandWsUrl);
+  const wsUrl = fixedWsUrl ?? storedWsUrl;
+  const setWsUrl = (next) => {
+    setStoredWsUrl(next);
+    try {
+      window.localStorage.setItem(LS_HAND_WS_KEY, next);
+    } catch {
+      // Not persisting is survivable; the value still applies for this session.
+    }
+  };
+
   const [status, setStatus] = useState('disconnected'); // disconnected | connecting | connected
   const [lastError, setLastError] = useState('');
   const [joints, setJoints] = useState([]);
@@ -214,6 +243,7 @@ export function useHandGateway({ wsUrl = DEFAULT_HAND_WS_URL, heartbeatMs = HEAR
     connect,
     disconnect,
     wsUrl,
+    setWsUrl,
     ops: {
       scan,
       enable,

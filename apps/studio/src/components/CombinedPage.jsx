@@ -287,7 +287,6 @@ export function CombinedPage() {
   // reference; that is `Set mechanical zero`, inside the arm section behind its confirm.
   const zeroAll = React.useCallback(() => {
     const next = zeroTargets(MODEL);
-    console.log(next);
     setTargets(next);
     return sendToRobot(next, 'zero all');
   }, [sendToRobot]);
