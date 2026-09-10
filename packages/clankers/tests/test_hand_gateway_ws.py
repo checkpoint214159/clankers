@@ -491,3 +491,36 @@ async def test_current_limit_check_is_quiet_when_hardware_matches() -> None:
         bus.set_current_limit(float(CFG.hand.current_limit_ma))
         resp = await client.call("check_current_limit")
         assert resp["data"]["mismatched"] == {}
+
+
+async def test_motion_profile_can_be_reapplied_without_restarting() -> None:
+    """Profile_Velocity/Acceleration are RAM, so a servo that power-cycles comes back with
+    the factory default of 0 -- which is not "slow" but "no profile", i.e. full speed toward
+    every goal. Recovering that must not require a gateway restart, which drops torque on
+    every servo including the fifteen that were fine.
+    """
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        expected = bus.apply_motion_profile()
+        assert expected["velocity"] > 0, "a zero profile is the same as no profile"
+
+        # Simulate two servos having been unplugged and replaced: their profile is gone.
+        bus._profile = {"velocity": 0, "acceleration": 0}
+
+        resp = await client.call("apply_motion_profile")
+        assert resp["ok"] is True, resp.get("error")
+        assert resp["data"]["velocity"] == expected["velocity"]
+        assert resp["data"]["acceleration"] == expected["acceleration"]
+
+
+async def test_apply_motion_profile_is_advertised() -> None:
+    async with (
+        _gateway() as (server, _service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        ops = (await client.call("capabilities"))["data"]["ops"]
+        assert "apply_motion_profile" in ops

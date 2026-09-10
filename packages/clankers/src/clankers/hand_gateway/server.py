@@ -143,6 +143,8 @@ class HandGatewayServer:
             return svc.set_current_limit(ma=msg["ma"])
         if op == "check_current_limit":
             return svc.check_current_limit()
+        if op == "apply_motion_profile":
+            return svc.apply_motion_profile()
         if op == "set_mechanical_zero":
             return svc.set_mechanical_zero(
                 servo_ids=msg.get("servo_ids"), confirm=bool(msg.get("confirm", False))

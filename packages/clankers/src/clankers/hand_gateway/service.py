@@ -34,6 +34,7 @@ OP_NAMES = [
     "reboot",
     "set_current_limit",
     "check_current_limit",
+    "apply_motion_profile",
     "set_mechanical_zero",
     "restore_homing_offsets",
     "heartbeat",
@@ -261,6 +262,20 @@ class GatewayService:
             raise GatewayError(f"unknown servo_id {servo_id}")
         self.bus.reboot(servo_id)
         return {"servo_id": servo_id}
+
+    def apply_motion_profile(self) -> dict[str, Any]:
+        """Re-push Profile_Velocity/Acceleration to every servo.
+
+        These are RAM registers, so unlike Current_Limit they do NOT survive a power cycle:
+        a servo that was unplugged, browned out, or hot-swapped comes back with the factory
+        default of 0, which does not mean "slow" but "no profile at all" -- it drives at full
+        speed toward every goal while its neighbours still ramp. The gateway applies the
+        profile once at connect, so without this the only cure was a gateway restart, which
+        drops torque on all sixteen.
+        """
+        applied = self.bus.apply_motion_profile()
+        logger.info("motion profile re-applied: %s", applied)
+        return applied
 
     def check_current_limit(self) -> dict[str, Any]:
         """Compare the servos' Current_Limit against robots.yaml and complain if it differs.
