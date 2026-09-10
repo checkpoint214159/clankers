@@ -3,10 +3,25 @@
 Commands flow through the gateway's full safety stack (joint limits, per-command step
 clamp, watchdog) — this script never talks to the bus directly (ADR-0002/0004).
 
+The tracking camera is the OPERATOR's camera — the one you wave your hand at. That is
+normally the Mac's built-in webcam, not either of the cameras mounted on the hand: those
+face the workspace (reserved for `observation.images.*`), so pointing the tracker at them
+gets you a view of the bench and zero detections.
+
+So the usual shape is split across two machines. The gateway binds 0.0.0.0, so run the
+tracking here on the Mac and aim it at the Pi:
+
+    uv sync --extra teleop
+    uv run clankers-teleop-demo --url ws://<pi-host>:9003     # Mac webcam is --camera 0
+
 Usage:
     uv run clankers-teleop-demo --synthetic         # no camera: open<->curl wave
-    uv run clankers-teleop-demo                     # webcam + preview window
+    uv run clankers-teleop-demo                     # local webcam + preview window
       keys in the preview: c = capture neutral with an OPEN relaxed hand, q = quit
+
+Running it ON the Pi only makes sense with a webcam pointed at you; `--camera 0` there is a
+hand-mounted camera. `clankers-detect` and `scripts/camera_debug.py --list` name cameras by
+USB port, which is what tells them apart.
 
 The gateway must allow `pos` — until bring-up sets hand.calibrated, start it with:
     uv run clankers-hand-gateway --mock --allow-uncalibrated
@@ -149,7 +164,12 @@ def main(argv: list[str] | None = None) -> int:
                 if key == ord("c") and lm is not None:
                     retarget.set_neutral(lm)
                     logger.info("neutral captured — teleop live")
-            elif tracker is not None and not retarget.has_neutral and frames >= int(args.hz):
+            elif (
+                tracker is not None
+                and lm is not None
+                and not retarget.has_neutral
+                and frames >= int(args.hz)
+            ):
                 # headless camera mode: auto-capture after ~1s of stable detection
                 retarget.set_neutral(lm)
                 logger.info("neutral auto-captured — teleop live")

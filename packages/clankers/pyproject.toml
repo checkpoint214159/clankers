@@ -10,7 +10,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Real hardware I/O. The gateway's bus layer imports lerobot lazily via
+# THE ROBOT CONTROLLER (ADR-0005): everything needed to own a serial bus and serve the WS
+# gateway, and nothing else. This is what the Pi installs. No lerobot and therefore no
+# torch/nvidia stack -- the brain that decides what to do lives on another machine and
+# reaches the hardware over the WS envelope. `clankers.hand_gateway.sdk_bus.DynamixelBus`
+# talks protocol 2.0 directly, so `hardware` is NOT needed to move the real hand.
+controller = [
+    "dynamixel-sdk>=3.7",
+]
+# The BRAIN's hardware path: lerobot's own bus/robot classes, used when brain and
+# controller are the same machine (a laptop with the arm plugged in). Pulls torch --
+# do not install this on the Pi. The gateway's bus layer imports lerobot lazily via
 # clankers.hand_gateway.bus; unit tests run against the mock bus without these.
 hardware = [
     "lerobot>=0.6",
@@ -22,20 +32,25 @@ hardware = [
 viz = [
     "rerun-sdk>=0.30,<0.31",
 ]
+# Camera debugging on Linux/V4L2 (scripts/camera_debug.py). Deliberately separate from
+# `teleop`: mediapipe publishes no aarch64 wheel, so `uv sync --extra teleop` fails to
+# resolve outright on the Pi and would take the camera tooling down with it.
+camera = [
+    "opencv-contrib-python>=4.10",
+]
 # Webcam teleop demo (clankers-teleop-demo). Retarget math itself is pure numpy;
 # these are only needed for live camera tracking.
 teleop = [
-    # NOTE: clankers.teleop.camera is written against the legacy `mp.solutions.hands` API,
-    # which NO mediapipe wheel available for Python 3.13 still ships -- 0.10.35's own
-    # __init__ exposes only tasks/Image/ImageFormat, same as 1.x. Pinning does not recover
-    # it; `clankers-teleop-demo` needs porting to the Tasks API (mp.tasks.vision.
-    # HandLandmarker, which also needs a .task model asset). scripts/camera_preview.py
-    # needs none of this and works today.
-    "mediapipe>=0.10.14",
-    # contrib rather than plain opencv-python because mediapipe depends on contrib, and
-    # opencv-python / opencv-contrib-python / opencv-python-headless all install the same
-    # `cv2` package and overwrite each other. lerobot still pulls headless transitively, so
-    # if `import cv2` ever yields an empty namespace package, repair with:
+    # NOT mediapipe. 1.0.1 is its only release with a linux-aarch64 wheel, and that binary
+    # is built with the ARMv8 crypto extensions on, so it SIGILLs on the Pi's Cortex-A72
+    # ("compiled with aes enabled, but this feature is not available on this processor").
+    # clankers.teleop.landmarker runs mediapipe's own .tflite hand models on LiteRT
+    # instead, which has no such requirement and resolves on every platform we care about.
+    "ai-edge-litert>=1.0",
+    # contrib rather than plain opencv-python because opencv-python /
+    # opencv-contrib-python / opencv-python-headless all install the same `cv2` package and
+    # overwrite each other. lerobot still pulls headless transitively, so if `import cv2`
+    # ever yields an empty namespace package, repair with:
     #   uv pip uninstall opencv-python opencv-python-headless opencv-contrib-python
     #   uv pip install --reinstall opencv-contrib-python
     "opencv-contrib-python>=4.10",

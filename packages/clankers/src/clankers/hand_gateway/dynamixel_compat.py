@@ -16,11 +16,82 @@ produce ticks in [0, 4096).
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 TICKS_PER_REV = 4096
 CENTER_TICK = TICKS_PER_REV // 2
 
 XC330_M288_MODEL_NUMBER = 1240  # confirmed via emanual.robotis.com/docs/en/dxl/x/xc330-m288
+
+# Model-number -> name without lerobot, so the controller install can name what it finds.
+# Deliberately only what we have confirmed on this hardware: `detect` enriches this from
+# lerobot's full table when lerobot happens to be installed, and anything still unknown is
+# reported as its raw number rather than guessed at.
+MODEL_NAMES: dict[int, str] = {XC330_M288_MODEL_NUMBER: "xc330-m288"}
+
+# Below this address the control table is EEPROM: writes are wear-limited and are rejected
+# while torque is on (CLAUDE.md house rule -- batch them and confirm explicitly).
+EEPROM_LIMIT_ADDR = 64
+
+
+@dataclass(frozen=True)
+class Register:
+    """One X-series control-table entry (protocol 2.0)."""
+
+    addr: int
+    size: int
+    signed: bool = False
+
+    @property
+    def eeprom(self) -> bool:
+        return self.addr < EEPROM_LIMIT_ADDR
+
+
+# X-series control table. Names match lerobot's register names on purpose: the raw-SDK bus
+# and the lerobot bus must not develop two vocabularies for the same register
+# (docs/glossary.md is emphatic about this class of collision).
+#
+# Present_Current(126,2) Present_Velocity(128,4) Present_Position(132,4) are contiguous, so
+# `read_state` pulls all three in ONE sync_read of 10 bytes from 126. That matters here:
+# every extra transaction is another chance for the flaky servo 14/15 chain to drop a
+# status packet and fail the whole poll (docs/plans/bringup.md).
+CONTROL_TABLE: dict[str, Register] = {
+    "Model_Number": Register(0, 2),
+    "Operating_Mode": Register(11, 1),
+    "Homing_Offset": Register(20, 4, signed=True),
+    "Current_Limit": Register(38, 2),
+    "Torque_Enable": Register(64, 1),
+    "Hardware_Error_Status": Register(70, 1),
+    "Profile_Acceleration": Register(108, 4),
+    "Profile_Velocity": Register(112, 4),
+    "Goal_Position": Register(116, 4, signed=True),
+    "Present_Current": Register(126, 2, signed=True),
+    "Present_Velocity": Register(128, 4, signed=True),
+    "Present_Position": Register(132, 4, signed=True),
+    "Present_Input_Voltage": Register(144, 2),
+    "Present_Temperature": Register(146, 1),
+}
+
+
+def decode_signed(value: int, size: int) -> int:
+    """Two's-complement fixup for a register read back as an unsigned little-endian int."""
+    bits = 8 * size
+    return value - (1 << bits) if value >= (1 << (bits - 1)) else value
+
+
+def encode_signed(value: int, size: int) -> int:
+    """Inverse of `decode_signed`: negative -> the unsigned int actually put on the wire.
+
+    Refuses a value the register cannot hold. Callers serialize the result little-endian by
+    masking each byte, which would otherwise wrap an out-of-range value into a plausible-
+    looking but completely different command -- a homing offset silently landing half a
+    turn away, say.
+    """
+    bits = 8 * size
+    low, high = -(1 << (bits - 1)), (1 << bits) - 1
+    if not low <= value <= high:
+        raise ValueError(f"{value} does not fit in a {size}-byte register ({low}..{high})")
+    return value + (1 << bits) if value < 0 else value
 
 _dxl_patched = False
 

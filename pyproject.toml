@@ -6,8 +6,11 @@ requires-python = ">=3.12"
 dependencies = ["clankers", "lerobot-robot-clankers"]
 
 [project.optional-dependencies]
+# The Pi installs this one and nothing else (ADR-0005). No lerobot => no torch.
+controller = ["clankers[controller]"]
 hardware = ["clankers[hardware]", "lerobot-robot-clankers[hardware]"]
 viz = ["clankers[viz]"]
+camera = ["clankers[camera]"]
 teleop = ["clankers[teleop]"]
 
 [tool.uv.workspace]

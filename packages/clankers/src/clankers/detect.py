@@ -70,17 +70,23 @@ def list_serial_candidates() -> list[SerialCandidate]:
 
 
 def _model_names() -> dict[int, str]:
-    """Model-number -> name, from lerobot's table plus our local xc330-m288 entry."""
+    """Model-number -> name: our local table, enriched from lerobot's when it is installed.
+
+    A controller install has no lerobot (ADR-0005), so the local table is the floor rather
+    than an empty dict — otherwise `clankers-detect` on the Pi would report the hand's own
+    servos as unknown numbers.
+    """
+    from clankers.hand_gateway.dynamixel_compat import MODEL_NAMES
+
+    names = dict(MODEL_NAMES)
     try:
         from lerobot.motors.dynamixel import tables as dxl_tables
 
-        from clankers.hand_gateway.dynamixel_compat import XC330_M288_MODEL_NUMBER
-
-        names = {num: name for name, num in dxl_tables.MODEL_NUMBER_TABLE.items()}
-        names.setdefault(XC330_M288_MODEL_NUMBER, "xc330-m288")
-        return names
+        for name, num in dxl_tables.MODEL_NUMBER_TABLE.items():
+            names.setdefault(num, name)
     except ImportError:
-        return {}
+        pass
+    return names
 
 
 @dataclass(frozen=True)
@@ -121,7 +127,9 @@ def probe_dynamixel(
         from dynamixel_sdk import COMM_SUCCESS, PacketHandler, PortHandler
     except ImportError as exc:
         raise ImportError(
-            "probing needs dynamixel-sdk. Run `uv sync --extra hardware`."
+            "probing needs dynamixel-sdk. Run `uv sync --extra controller` — that is the "
+            "whole controller install (ADR-0005); `--extra hardware` also works but pulls "
+            "lerobot and torch, which a robot controller has no use for."
         ) from exc
 
     names = _model_names()

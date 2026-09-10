@@ -1,3 +1,9 @@
+> **ADR-0005 changed which bus the gateway uses.** `clankers-hand-gateway` now drives the
+> hand through `sdk_bus.DynamixelBus` (raw dynamixel-sdk) by default instead of lerobot, so
+> the Pi needs only `uv sync --extra controller`. That implementation is tested against a
+> fake register file but has **not** been on hardware yet — first real bring-up run should
+> cross-check it against `--via-lerobot` (needs `--extra hardware`) before trusting readings.
+
 # Hardware bring-up checklist (hand first, then arm spike, then combo)
 
 ## 0. Before touching hardware

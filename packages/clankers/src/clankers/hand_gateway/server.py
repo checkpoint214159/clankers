@@ -26,6 +26,7 @@ from websockets.asyncio.server import ServerConnection
 from clankers.config import load_robots
 
 from .bus import HandBus, LerobotDynamixelBus, MockBus
+from .sdk_bus import DynamixelBus
 from .service import GatewayError, GatewayService
 
 logger = logging.getLogger(__name__)
@@ -261,6 +262,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument(
+        "--via-lerobot",
+        action="store_true",
+        help="drive the bus through lerobot's DynamixelMotorsBus instead of dynamixel-sdk "
+        "directly. Needs --extra hardware (torch); only useful for cross-checking the two "
+        "paths against each other. The default raw-SDK bus is what a controller runs.",
+    )
+    parser.add_argument(
         "--allow-uncalibrated",
         action="store_true",
         help="allow the `pos` op before hand.calibrated is true (bring-up escape hatch; prefer `jog`)",
@@ -279,7 +287,8 @@ def main(argv: list[str] | None = None) -> None:
     else:
         if not args.serial_port:
             parser.error("--serial-port is required without --mock")
-        bus = LerobotDynamixelBus(args.serial_port, cfg.hand, baudrate=args.baud)
+        make_bus = LerobotDynamixelBus if args.via_lerobot else DynamixelBus
+        bus = make_bus(args.serial_port, cfg.hand, baudrate=args.baud)
 
     bus.connect()
     try:
@@ -287,7 +296,10 @@ def main(argv: list[str] | None = None) -> None:
         # Surfaced at startup rather than after a stall has already browned out the chain.
         service.check_current_limit()
         server = HandGatewayServer(service, host=args.host, port=port)
-        logger.info("hand gateway listening on %s:%s (mock=%s)", args.host, port, args.mock)
+        logger.info(
+            "hand gateway listening on %s:%s (mock=%s, bus=%s)",
+            args.host, port, args.mock, type(bus).__name__,
+        )
         asyncio.run(server.serve_forever())
     except KeyboardInterrupt:
         pass
