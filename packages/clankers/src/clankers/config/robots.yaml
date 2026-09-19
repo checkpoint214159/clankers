@@ -70,6 +70,19 @@ hand:
   # xl330-m288 (natively in lerobot's table — the xc330-m288 local patch is now unused
   # but harmless). XL330 = plastic gears: keep the conservative current limit.
   motor_model: xl330-m288
+  # Operating_Mode (EEPROM addr 11). 5 = current-based position: the position loop runs on
+  # top of a current loop capped at Goal_Current, so a blocked finger pushes at
+  # current_limit_ma and no harder. The factory mode 3 drives PWM (a voltage) straight from
+  # the position error and does NOT enforce Current_Limit: a stalled XL330 draws ~1.47 A,
+  # and a few stalled at once sag the 5 V rail until every servo on it latches an input
+  # voltage fault. LEAP's own hardware driver runs mode 5 for the same reason.
+  # EEPROM, so it is written once by the `configure_current_limiting` op
+  # (scripts/configure_hand_current_limit.py), and `enable` refuses until it matches.
+  operating_mode: 5
+  # Written to BOTH Current_Limit (EEPROM, the hard ceiling -- Goal_Current can never be set
+  # above it, so it survives a reboot) and Goal_Current (RAM, the working cap -- restored on
+  # every `enable`). Only enforced in operating_mode 5.
+  # ~300 mA is ~0.1 N*m at the joint, about a fifth of stall torque.
   current_limit_ma: 300 # keep 300 for plastic-gear XL330s until bring-up proves headroom is needed
   temperature_limit_c: 70 # XC330 default shutdown threshold; do not raise
   poll:

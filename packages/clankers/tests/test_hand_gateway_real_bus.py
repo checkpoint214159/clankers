@@ -46,6 +46,10 @@ class FakeLerobotBus:
         # connect() applies the firmware motion profile (Profile_Velocity/Acceleration).
         self.calls.append(("write", reg, motor, value))
 
+    def sync_write(self, reg: str, values: dict, normalize: bool = True) -> None:
+        # connect() also pushes Goal_Current when the hand runs current-based position.
+        self.calls.append(("sync_write", reg, dict(values)))
+
     def set_baudrate(self, baud: int) -> None:
         self.calls.append(("set_baudrate", baud))
         self.baudrate = baud
@@ -154,3 +158,14 @@ def test_connect_applies_the_firmware_motion_profile(fake_lerobot) -> None:
     first_write = next(i for i, c in enumerate(built[0].calls) if c[0] == "write")
     last_ping = max(i for i, c in enumerate(built[0].calls) if c[0] == "broadcast_ping")
     assert last_ping < first_write
+
+
+def test_connect_pushes_the_goal_current_cap_in_current_based_mode(fake_lerobot) -> None:
+    """Goal_Current is RAM like the profile, so connect writes it alongside."""
+    built, _ = fake_lerobot
+    assert CFG.hand.operating_mode == 5, "robots.yaml runs the hand current-capped"
+    LerobotDynamixelBus("/dev/fake", CFG.hand).connect()
+
+    (goal,) = [c for c in built[0].calls if c[:2] == ("sync_write", "Goal_Current")]
+    assert set(goal[2].values()) == {CFG.hand.current_limit_ma}
+    assert len(goal[2]) == 16

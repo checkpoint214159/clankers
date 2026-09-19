@@ -33,6 +33,22 @@ MODEL_NAMES: dict[int, str] = {XC330_M288_MODEL_NUMBER: "xc330-m288"}
 # while torque is on (CLAUDE.md house rule -- batch them and confirm explicitly).
 EEPROM_LIMIT_ADDR = 64
 
+# Operating_Mode values (addr 11). The factory default is POSITION, where the position loop
+# drives PWM -- a voltage -- directly, and Current_Limit is NOT enforced: a blocked joint
+# draws full stall current (~1.47 A on an XL330 at 5 V). CURRENT_BASED_POSITION puts a
+# current loop under the position loop and caps it at Goal_Current (<= Current_Limit),
+# which is what makes `hand.current_limit_ma` real.
+OPERATING_MODE_POSITION = 3
+OPERATING_MODE_CURRENT_BASED_POSITION = 5
+OPERATING_MODE_NAMES = {
+    0: "current",
+    1: "velocity",
+    OPERATING_MODE_POSITION: "position",
+    4: "extended position",
+    OPERATING_MODE_CURRENT_BASED_POSITION: "current-based position",
+    16: "pwm",
+}
+
 
 @dataclass(frozen=True)
 class Register:
@@ -62,6 +78,7 @@ CONTROL_TABLE: dict[str, Register] = {
     "Current_Limit": Register(38, 2),
     "Torque_Enable": Register(64, 1),
     "Hardware_Error_Status": Register(70, 1),
+    "Goal_Current": Register(102, 2, signed=True),
     "Profile_Acceleration": Register(108, 4),
     "Profile_Velocity": Register(112, 4),
     "Goal_Position": Register(116, 4, signed=True),

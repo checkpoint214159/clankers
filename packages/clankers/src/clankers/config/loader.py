@@ -68,6 +68,7 @@ class HandConfig:
     revision: str
     calibrated: bool
     motor_model: str
+    operating_mode: int
     current_limit_ma: int
     temperature_limit_c: int
     poll: dict[str, float]
@@ -137,6 +138,7 @@ def load_robots(path: Path | None = None) -> RobotsConfig:
         revision=hand_raw["revision"],
         calibrated=bool(hand_raw["calibrated"]),
         motor_model=hand_raw["motor_model"],
+        operating_mode=int(hand_raw.get("operating_mode", 3)),  # 3 = factory position mode
         current_limit_ma=int(hand_raw["current_limit_ma"]),
         temperature_limit_c=int(hand_raw["temperature_limit_c"]),
         poll={k: float(v) for k, v in hand_raw["poll"].items()},
@@ -176,6 +178,13 @@ def _validate(arm: ArmConfig, hand: HandConfig) -> None:
     servo_ids = [j.servo_id for j in hand.joints]
     if len(set(servo_ids)) != 16:
         raise ValueError("duplicate servo_id in hand joints")
+    # Only the two position modes make sense for a hand driven by `pos`; anything else
+    # would silently reinterpret every Goal_Position the gateway writes.
+    if hand.operating_mode not in (3, 5):
+        raise ValueError(
+            f"hand.operating_mode must be 3 (position) or 5 (current-based position), "
+            f"got {hand.operating_mode}"
+        )
 
     if len(arm.joints) != 7:
         raise ValueError(f"arm must have 7 joints (6 + gripper), got {len(arm.joints)}")

@@ -341,6 +341,30 @@ def test_motion_profile_read_back_sees_a_servo_that_lost_it(
     assert live[8] == {"velocity": applied["velocity"], "acceleration": applied["acceleration"]}
 
 
+def test_connect_writes_the_goal_current_cap(bus: DynamixelBus, state: FakeBusState) -> None:
+    """robots.yaml runs the hand in current-based position mode, so the working cap (RAM)
+    goes on at connect alongside the profile."""
+    assert CFG.hand.operating_mode == 5
+    reg = CONTROL_TABLE["Goal_Current"]
+    assert {state.get(sid, reg.addr, reg.size) for sid in SERVO_IDS} == {CFG.hand.current_limit_ma}
+    assert set(bus.read_goal_currents().values()) == {float(CFG.hand.current_limit_ma)}
+
+
+def test_operating_mode_writes_land_per_servo_on_address_11(
+    bus: DynamixelBus, state: FakeBusState
+) -> None:
+    reg = CONTROL_TABLE["Operating_Mode"]
+    assert reg.addr == 11 and reg.eeprom
+    for sid in SERVO_IDS:
+        state.put(sid, reg.addr, reg.size, 3)
+
+    bus.write_operating_modes({4: 5})
+
+    modes = bus.read_operating_modes()
+    assert modes[4] == 5
+    assert all(modes[sid] == 3 for sid in SERVO_IDS if sid != 4)
+
+
 def test_one_servo_refusing_the_profile_does_not_stop_the_gateway(
     bus: DynamixelBus, state: FakeBusState
 ) -> None:

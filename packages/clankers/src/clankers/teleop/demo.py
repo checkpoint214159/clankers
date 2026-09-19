@@ -110,10 +110,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         client.call("enable")
     except RuntimeError as exc:
-        if "unacknowledged faults" in str(exc):
-            logger.error("%s — clear faults from the studio (reboot op) first", exc)
-            return 1
-        raise
+        # The gateway's refusal already says what to do -- reboot a faulted servo, or run
+        # scripts/configure_hand_current_limit.py once -- and a traceback would bury it.
+        logger.error("enable refused: %s", exc)
+        return 1
     logger.info("torque enabled on all 16; watchdog armed")
 
     smoothed: dict[str, float] | None = None

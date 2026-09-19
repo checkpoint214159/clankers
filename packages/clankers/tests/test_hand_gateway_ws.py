@@ -22,9 +22,14 @@ CFG = load_robots()
 
 
 @contextlib.asynccontextmanager
-async def _gateway(*, allow_uncalibrated: bool = False, hand_cfg: HandConfig | None = None):
+async def _gateway(
+    *,
+    allow_uncalibrated: bool = False,
+    hand_cfg: HandConfig | None = None,
+    bus: MockBus | None = None,
+):
     cfg_hand = hand_cfg or CFG.hand
-    bus = MockBus(cfg_hand)
+    bus = bus or MockBus(cfg_hand)
     bus.connect()
     service = GatewayService(bus, cfg_hand, allow_uncalibrated=allow_uncalibrated)
     server = HandGatewayServer(service, host="127.0.0.1", port=0)
@@ -538,10 +543,14 @@ async def test_enable_after_a_fault_reboot_restores_the_motion_profile() -> None
         assert (await client.call("reboot", servo_id=13))["ok"] is True
         assert bus.read_motion_profiles()[13] == {"velocity": 0, "acceleration": 0}
 
+        assert bus.read_goal_currents()[13] != CFG.hand.current_limit_ma
+
         resp = await client.call("enable")
         assert resp["ok"] is True, resp.get("error")
-        assert resp["data"]["profile_restored"] == [13]
+        assert resp["data"]["ram_config_restored"] == [13]
         assert all(p == expected for p in bus.read_motion_profiles().values())
+        # Goal_Current is RAM too: without it a current-based servo pushes uncapped.
+        assert set(bus.read_goal_currents().values()) == {CFG.hand.current_limit_ma}
 
 
 async def test_enable_is_refused_when_the_profile_will_not_stick() -> None:
@@ -554,20 +563,31 @@ async def test_enable_is_refused_when_the_profile_will_not_stick() -> None:
             self._profile[6] = {"velocity": 0, "acceleration": 0}
             return result
 
-    bus = ProfileRejectingBus(CFG.hand)
-    bus.connect()
-    service = GatewayService(bus, CFG.hand)
-    server = HandGatewayServer(service, host="127.0.0.1", port=0)
-    await server.start()
-    try:
-        async with websockets.connect(f"ws://127.0.0.1:{server.port}") as ws:
-            resp = await _WsClient(ws).call("enable")
-            assert resp["ok"] is False
-            assert "[6]" in resp["error"] and "full speed" in resp["error"]
-            assert not any(bus.read_torque_enabled(list(range(16))).values())
-    finally:
-        await server.stop()
-        bus.disconnect()
+    async with (
+        _gateway(bus=ProfileRejectingBus(CFG.hand)) as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        resp = await _WsClient(ws).call("enable")
+        assert resp["ok"] is False
+        assert "[6]" in resp["error"] and "full speed" in resp["error"]
+        assert not any(bus.read_torque_enabled(list(range(16))).values())
+
+
+async def test_enable_is_refused_when_the_goal_current_will_not_stick() -> None:
+    """Same door, other register: in mode 5 an unset Goal_Current means an uncapped push."""
+
+    class GoalCurrentIgnoringBus(MockBus):
+        def write_goal_currents(self, ma: float) -> None:
+            pass
+
+    async with (
+        _gateway(bus=GoalCurrentIgnoringBus(CFG.hand)) as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        resp = await _WsClient(ws).call("enable")
+        assert resp["ok"] is False
+        assert "Goal_Current" in resp["error"]
+        assert not any(bus.read_torque_enabled(list(range(16))).values())
 
 
 async def test_enable_leaves_a_healthy_profile_alone() -> None:
@@ -577,7 +597,7 @@ async def test_enable_leaves_a_healthy_profile_alone() -> None:
     ):
         resp = await _WsClient(ws).call("enable")
         assert resp["ok"] is True, resp.get("error")
-        assert resp["data"]["profile_restored"] == []
+        assert resp["data"]["ram_config_restored"] == []
 
 
 async def test_apply_motion_profile_is_advertised() -> None:
@@ -588,3 +608,137 @@ async def test_apply_motion_profile_is_advertised() -> None:
         client = _WsClient(ws)
         ops = (await client.call("capabilities"))["data"]["ops"]
         assert "apply_motion_profile" in ops
+
+
+def _factory_fresh(bus: MockBus, ids: list[int] | None = None) -> None:
+    """Put servos back to what they ship with: position mode, the 1750 mA factory limit."""
+    for sid in ids if ids is not None else range(16):
+        bus._operating_mode[sid] = 3
+    bus.set_current_limit(1750.0)
+
+
+async def test_enable_is_refused_on_servos_still_in_factory_position_mode() -> None:
+    """Mode 3 ignores Current_Limit, so a blocked finger draws full stall current; enabling
+    there is the brownout this whole configuration exists to prevent."""
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        for sid in (4, 9):
+            bus._operating_mode[sid] = 3
+        resp = await _WsClient(ws).call("enable")
+        assert resp["ok"] is False
+        assert "[4, 9]" in resp["error"] and "3 (position)" in resp["error"]
+        assert "configure_hand_current_limit" in resp["error"]
+        assert not any(bus.read_torque_enabled(list(range(16))).values())
+
+
+async def test_enable_is_refused_while_current_limit_is_the_factory_value() -> None:
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        bus.set_current_limit(1750.0)
+        resp = await _WsClient(ws).call("enable")
+        assert resp["ok"] is False
+        assert "Current_Limit 1750 mA" in resp["error"]
+
+
+async def test_check_current_limit_reports_the_operating_mode_too() -> None:
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        bus._operating_mode[2] = 3
+        data = (await _WsClient(ws).call("check_current_limit"))["data"]
+        assert data["configured_operating_mode"] == 5
+        assert data["mode_mismatched"] == {"2": 3}
+        assert data["mismatched"] == {}
+
+
+async def test_configure_current_limiting_needs_confirm() -> None:
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        _factory_fresh(bus)
+        resp = await _WsClient(ws).call("configure_current_limiting")
+        assert resp["ok"] is False and "confirm=true" in resp["error"]
+        assert set(bus.read_operating_modes().values()) == {3}
+
+
+async def test_configure_current_limiting_refuses_while_any_torque_is_on() -> None:
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        _factory_fresh(bus)
+        bus.enable_torque([7])
+        resp = await _WsClient(ws).call("configure_current_limiting", confirm=True)
+        assert resp["ok"] is False and "[7]" in resp["error"]
+        assert set(bus.read_operating_modes().values()) == {3}
+
+
+async def test_configure_current_limiting_refuses_faulted_servos() -> None:
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        _factory_fresh(bus)
+        bus.inject_fault(11, 1 << 0)
+        resp = await _WsClient(ws).call("configure_current_limiting", confirm=True)
+        assert resp["ok"] is False and "reboot" in resp["error"]
+        assert set(bus.read_operating_modes().values()) == {3}
+
+
+async def test_configure_current_limiting_makes_a_factory_hand_enableable() -> None:
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        _factory_fresh(bus)
+        assert (await client.call("enable"))["ok"] is False
+
+        resp = await client.call("configure_current_limiting", confirm=True)
+        assert resp["ok"] is True, resp.get("error")
+        assert resp["data"]["changed"] == list(range(16))
+        assert resp["data"]["previous"]["0"] == {"operating_mode": 3, "current_limit_ma": 1750.0}
+        assert set(bus.read_operating_modes().values()) == {5}
+        assert set(bus.read_current_limits().values()) == {CFG.hand.current_limit_ma}
+        assert set(bus.read_goal_currents().values()) == {CFG.hand.current_limit_ma}
+
+        resp = await client.call("enable")
+        assert resp["ok"] is True, resp.get("error")
+        assert resp["data"]["ram_config_restored"] == []
+
+
+async def test_configure_current_limiting_writes_only_the_servos_that_differ() -> None:
+    """EEPROM is wear-limited: re-running the setup must not rewrite a configured servo."""
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        written: list[dict[int, int]] = []
+        real_write = bus.write_operating_modes
+        bus.write_operating_modes = lambda modes: (written.append(dict(modes)), real_write(modes))
+
+        bus._operating_mode[12] = 3
+        resp = await client.call("configure_current_limiting", confirm=True)
+        assert resp["ok"] is True, resp.get("error")
+        assert resp["data"]["changed"] == [12]
+        assert written == [{12: 5}]
+
+        resp = await client.call("configure_current_limiting", confirm=True)
+        assert resp["data"]["changed"] == []
+        assert written == [{12: 5}]
+
+
+async def test_configure_current_limiting_is_advertised() -> None:
+    async with (
+        _gateway() as (server, _service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        ops = (await _WsClient(ws).call("capabilities"))["data"]["ops"]
+        assert "configure_current_limiting" in ops

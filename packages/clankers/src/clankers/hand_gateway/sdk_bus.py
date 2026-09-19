@@ -30,6 +30,7 @@ from .bus import HandBus
 from .dynamixel_compat import (
     CONTROL_TABLE,
     MODEL_NAMES,
+    OPERATING_MODE_CURRENT_BASED_POSITION,
     Register,
     decode_signed,
     encode_signed,
@@ -107,6 +108,8 @@ class DynamixelBus(HandBus):
         self._readers.clear()
         self._verify_roll_call(baud)
         self.apply_motion_profile()
+        if self._hand_cfg.operating_mode == OPERATING_MODE_CURRENT_BASED_POSITION:
+            self.write_goal_currents(self._hand_cfg.current_limit_ma)
 
     def _verify_roll_call(self, baud: int) -> None:
         """Ping every servo robots.yaml expects; fail loudly naming whoever is missing.
@@ -361,6 +364,30 @@ class DynamixelBus(HandBus):
             }
             for sid in self._name_by_id
         }
+
+    def read_goal_currents(self) -> dict[int, float]:
+        reg = CONTROL_TABLE["Goal_Current"]
+        reader = self._read_block(reg.addr, reg.size)
+        return {
+            sid: float(self._field(reader, sid, reg)) * self.CURRENT_MA_PER_LSB
+            for sid in self._name_by_id
+        }
+
+    def write_goal_currents(self, ma: float) -> None:
+        ticks = round(ma / self.CURRENT_MA_PER_LSB)
+        self._sync_write(CONTROL_TABLE["Goal_Current"], dict.fromkeys(self._name_by_id, ticks))
+
+    def read_operating_modes(self) -> dict[int, int]:
+        reg = CONTROL_TABLE["Operating_Mode"]
+        reader = self._read_block(reg.addr, reg.size)
+        return {sid: self._field(reader, sid, reg) for sid in self._name_by_id}
+
+    def write_operating_modes(self, modes: dict[int, int]) -> None:
+        """EEPROM, one servo at a time so each write is confirmed by its own status packet
+        (a sync write gets none, and would drop a refused write silently)."""
+        reg = CONTROL_TABLE["Operating_Mode"]
+        for sid, mode in modes.items():
+            self._write_one(reg, sid, int(mode))
 
     def read_current_limits(self) -> dict[int, float]:
         reg = CONTROL_TABLE["Current_Limit"]

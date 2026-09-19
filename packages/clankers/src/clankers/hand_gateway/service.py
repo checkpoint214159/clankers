@@ -16,7 +16,11 @@ from clankers.config import HandConfig, load_robots
 from clankers.safety import SafetyClamp, Watchdog, clamp_step, decode_dynamixel_error
 
 from .bus import HandBus
-from .dynamixel_compat import profile_register_values
+from .dynamixel_compat import (
+    OPERATING_MODE_CURRENT_BASED_POSITION,
+    OPERATING_MODE_NAMES,
+    profile_register_values,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,7 @@ OP_NAMES = [
     "reboot",
     "set_current_limit",
     "check_current_limit",
+    "configure_current_limiting",
     "apply_motion_profile",
     "set_mechanical_zero",
     "restore_homing_offsets",
@@ -99,17 +104,26 @@ class GatewayService:
         self._check_ids(ids)
         # ADR-0004: a latched hardware fault requires explicit acknowledgment (`reboot`);
         # refusing here prevents an enable/retry loop from papering over a real fault.
-        faulted = {
-            sid: [f.value for f in decode_dynamixel_error(int(h["error_bits"]))]
-            for sid, h in self.bus.read_health().items()
-            if sid in ids and int(h.get("error_bits", 0)) != 0
-        }
+        faulted = self._faulted(ids)
         if faulted:
             raise GatewayError(
                 f"refusing to enable servos with unacknowledged faults {faulted}; "
                 "clear each with the `reboot` op first (ADR-0004)"
             )
-        restored = self._ensure_motion_profile(ids)
+        # EEPROM first: if the servo is not even in the mode that enforces a current cap,
+        # restoring the RAM-side cap below would be meaningless.
+        unconfigured = self._eeprom_mismatches(ids)
+        if unconfigured:
+            raise GatewayError(
+                f"refusing to enable: {self._summarize_eeprom(unconfigured)}, but robots.yaml "
+                f"wants mode {self._mode_name(self.hand_cfg.operating_mode)} and "
+                f"Current_Limit {self.hand_cfg.current_limit_ma} mA. Until they match, nothing "
+                "caps motor current: a blocked finger draws full stall current and can brown "
+                "out the whole hand. With torque off, run "
+                "scripts/configure_hand_current_limit.py once (the `configure_current_limiting` "
+                "op, confirm=true); it writes EEPROM, so it survives reboots"
+            )
+        restored = self._ensure_ram_config(ids)
         self.bus.enable_torque(ids)
         # Reseed the clamp from live positions on EVERY enable: while torque was off the
         # hand is back-drivable, so any stale last-target would let the next `pos` command
@@ -123,7 +137,7 @@ class GatewayService:
         # (Re-)arm the watchdog: a prior trip leaves torque off until an operator re-enables.
         self._enabled_ids.update(ids)
         self.watchdog.start()
-        return {"servo_ids": ids, "profile_restored": restored}
+        return {"servo_ids": ids, "ram_config_restored": restored}
 
     def disable(self, servo_ids: list[int] | None = None) -> dict[str, Any]:
         ids = list(servo_ids) if servo_ids is not None else list(self._servo_ids)
@@ -280,33 +294,121 @@ class GatewayService:
         return applied
 
     def check_current_limit(self) -> dict[str, Any]:
-        """Compare the servos' Current_Limit against robots.yaml and complain if it differs.
+        """Is motor current really capped at `hand.current_limit_ma`? Complain loudly if not.
 
-        Current_Limit lives in EEPROM, so this deliberately does NOT write it (wear-limited;
-        CLAUDE.md wants EEPROM writes batched and explicitly confirmed). But leaving the
-        configured value unapplied is worse than it looks: a stalled servo then draws up to
-        the factory limit rather than `hand.current_limit_ma`, and several stalled at once
-        sag the rail far enough to latch undervoltage faults across the chain.
+        That takes two EEPROM settings, not one. Current_Limit is the obvious one, but the
+        factory Operating_Mode (3, position) ignores it entirely: the position loop drives
+        PWM -- a voltage -- straight from the position error, so a stalled servo draws full
+        stall current (~1.47 A) whatever the limit says, and several stalled at once sag the
+        rail far enough to latch input-voltage faults across the chain. Only mode 5 puts a
+        current loop under the position loop and caps it.
+
+        Read-only: EEPROM is wear-limited and CLAUDE.md wants its writes batched and
+        confirmed, which is `configure_current_limiting`.
         """
-        want = float(self.hand_cfg.current_limit_ma)
+        want_ma = float(self.hand_cfg.current_limit_ma)
+        want_mode = self.hand_cfg.operating_mode
         try:
-            live = self.bus.read_current_limits()
+            wrong = self._eeprom_mismatches(list(self._servo_ids))
         except (ConnectionError, OSError, RuntimeError) as exc:
-            logger.warning("could not read Current_Limit: %s", exc)
-            return {"checked": False, "configured_ma": want}
-        mismatched = {sid: ma for sid, ma in live.items() if abs(ma - want) > 1.0}
-        if mismatched:
+            logger.warning("could not read Current_Limit/Operating_Mode: %s", exc)
+            return {"checked": False, "configured_ma": want_ma, "configured_operating_mode": want_mode}
+        if wrong:
             logger.error(
-                "Current_Limit on %d servo(s) is not the configured %.0f mA: %s. Nothing has "
-                "applied it -- robots.yaml alone does not reach the hardware. A stall will "
-                "draw to THAT limit, and several stalled servos can sag the rail into "
-                "undervoltage faults. Apply with the `set_current_limit` op (torque off).",
-                len(mismatched), want, {k: round(v) for k, v in sorted(mismatched.items())},
+                "the servos are not configured as robots.yaml says (operating mode %s, "
+                "Current_Limit %.0f mA): %s. robots.yaml alone does not reach the hardware, and "
+                "until it does nothing caps motor current. `enable` will refuse. With torque "
+                "off, run scripts/configure_hand_current_limit.py once.",
+                self._mode_name(want_mode), want_ma, self._summarize_eeprom(wrong),
             )
         return {
             "checked": True,
-            "configured_ma": want,
-            "mismatched": {str(k): v for k, v in sorted(mismatched.items())},
+            "configured_ma": want_ma,
+            "configured_operating_mode": want_mode,
+            "mismatched": {
+                str(sid): f["current_limit_ma"]
+                for sid, f in sorted(wrong.items()) if "current_limit_ma" in f
+            },
+            "mode_mismatched": {
+                str(sid): f["operating_mode"]
+                for sid, f in sorted(wrong.items()) if "operating_mode" in f
+            },
+        }
+
+    def configure_current_limiting(self, *, confirm: bool = False) -> dict[str, Any]:
+        """Write Operating_Mode and Current_Limit from robots.yaml into each servo's EEPROM.
+
+        The one-time setup that makes `hand.current_limit_ma` real (see check_current_limit).
+        Guarded like `set_mechanical_zero`:
+
+        - `confirm` must be set: EEPROM is wear-limited and survives power-off.
+        - Torque must be OFF on every servo: the servo locks its EEPROM while powered, so a
+          partial batch would leave the hand in mixed modes.
+        - No latched faults: a faulted servo answers every write with an error.
+
+        Only registers that differ are written, and all of them are read back. To undo,
+        change robots.yaml and run this again; `previous` in the result records what each
+        servo held before.
+        """
+        ids = list(self._servo_ids)
+        if not confirm:
+            raise GatewayError(
+                "configure_current_limiting rewrites Operating_Mode and Current_Limit in EEPROM "
+                "(wear-limited, survives power-off) on every servo that differs from "
+                "robots.yaml; re-send with confirm=true"
+            )
+        powered = sorted(sid for sid, on in self.bus.read_torque_enabled(ids).items() if on)
+        if powered:
+            raise GatewayError(
+                f"refusing while torque is on for {powered}: the servo locks its EEPROM when "
+                "powered, so the batch would land on only some joints. Disable torque first "
+                "(support the hand -- it goes limp)"
+            )
+        faulted = self._faulted(ids)
+        if faulted:
+            raise GatewayError(
+                f"refusing with unacknowledged faults {faulted}: a faulted servo rejects writes. "
+                "Clear each with the `reboot` op first"
+            )
+        wrong = self._eeprom_mismatches(ids)
+        if wrong:
+            try:
+                if any("current_limit_ma" in f for f in wrong.values()):
+                    # Ceiling first: the servo refuses a Goal_Current above it.
+                    self.bus.set_current_limit(float(self.hand_cfg.current_limit_ma))
+                modes = {
+                    sid: self.hand_cfg.operating_mode
+                    for sid, f in wrong.items() if "operating_mode" in f
+                }
+                if modes:
+                    self.bus.write_operating_modes(modes)
+            except (ConnectionError, OSError, RuntimeError) as exc:
+                still = self._eeprom_mismatches(ids)
+                raise GatewayError(
+                    f"EEPROM write failed part-way ({exc}); still wrong: "
+                    f"{self._summarize_eeprom(still) or 'nothing'}. Re-run to finish -- only "
+                    "servos that still differ are written"
+                ) from exc
+            still = self._eeprom_mismatches(ids)
+            if still:
+                raise GatewayError(
+                    f"EEPROM write did not take: {self._summarize_eeprom(still)} after writing. "
+                    "Check `error_status` and the cabling, then re-run"
+                )
+            logger.warning(
+                "wrote EEPROM on servo(s) %s: operating mode %s, Current_Limit %d mA "
+                "(previously %s)",
+                sorted(wrong), self._mode_name(self.hand_cfg.operating_mode),
+                self.hand_cfg.current_limit_ma, self._summarize_eeprom(wrong),
+            )
+        # Goal_Current only means something once the mode is 5; push the RAM side now so the
+        # first `enable` afterwards has nothing to restore.
+        self._apply_ram_config()
+        return {
+            "changed": sorted(wrong),
+            "previous": {str(sid): f for sid, f in sorted(wrong.items())},
+            "operating_mode": self.hand_cfg.operating_mode,
+            "current_limit_ma": self.hand_cfg.current_limit_ma,
         }
 
     def set_current_limit(self, ma: float) -> dict[str, Any]:
@@ -371,36 +473,89 @@ class GatewayService:
         if unknown:
             raise GatewayError(f"unknown servo_id(s): {unknown}")
 
-    def _profile_mismatches(self, ids: list[int]) -> dict[int, dict[str, int]]:
+    def _faulted(self, ids: list[int]) -> dict[int, list[str]]:
+        return {
+            sid: [f.value for f in decode_dynamixel_error(int(h["error_bits"]))]
+            for sid, h in self.bus.read_health().items()
+            if sid in ids and int(h.get("error_bits", 0)) != 0
+        }
+
+    @staticmethod
+    def _mode_name(mode: int) -> str:
+        return f"{mode} ({OPERATING_MODE_NAMES.get(int(mode), 'unknown')})"
+
+    def _eeprom_mismatches(self, ids: list[int]) -> dict[int, dict[str, float]]:
+        """`{servo_id: {setting: live value}}` for each EEPROM setting that differs from
+        robots.yaml. These survive reboots, so a mismatch is never fixed behind anyone's
+        back -- only by the confirmed `configure_current_limiting`."""
+        want_ma = float(self.hand_cfg.current_limit_ma)
+        out: dict[int, dict[str, float]] = {}
+        for sid, mode in self.bus.read_operating_modes().items():
+            if sid in ids and mode != self.hand_cfg.operating_mode:
+                out.setdefault(sid, {})["operating_mode"] = mode
+        for sid, ma in self.bus.read_current_limits().items():
+            if sid in ids and abs(ma - want_ma) > 1.0:
+                out.setdefault(sid, {})["current_limit_ma"] = ma
+        return out
+
+    def _summarize_eeprom(self, wrong: dict[int, dict[str, float]]) -> str:
+        """Group by value, so sixteen factory-fresh servos read as one line, not sixteen."""
+        by_mode: dict[int, list[int]] = {}
+        by_limit: dict[float, list[int]] = {}
+        for sid, f in sorted(wrong.items()):
+            if "operating_mode" in f:
+                by_mode.setdefault(int(f["operating_mode"]), []).append(sid)
+            if "current_limit_ma" in f:
+                by_limit.setdefault(f["current_limit_ma"], []).append(sid)
+        parts = [f"servo(s) {ids} in mode {self._mode_name(m)}" for m, ids in by_mode.items()]
+        parts += [f"servo(s) {ids} at Current_Limit {ma:.0f} mA" for ma, ids in by_limit.items()]
+        return "; ".join(parts)
+
+    def _apply_ram_config(self) -> None:
+        self.bus.apply_motion_profile()
+        if self.hand_cfg.operating_mode == OPERATING_MODE_CURRENT_BASED_POSITION:
+            self.bus.write_goal_currents(float(self.hand_cfg.current_limit_ma))
+
+    def _ram_mismatches(self, ids: list[int]) -> dict[int, dict[str, Any]]:
+        out: dict[int, dict[str, Any]] = {}
         wanted = profile_register_values(self.hand_cfg.profile)
-        live = self.bus.read_motion_profiles()
-        return {sid: live[sid] for sid in ids if sid in live and live[sid] != wanted}
+        for sid, live in self.bus.read_motion_profiles().items():
+            if sid in ids and live != wanted:
+                out.setdefault(sid, {})["profile"] = live
+        if self.hand_cfg.operating_mode == OPERATING_MODE_CURRENT_BASED_POSITION:
+            want_ma = float(self.hand_cfg.current_limit_ma)
+            for sid, ma in self.bus.read_goal_currents().items():
+                if sid in ids and abs(ma - want_ma) > 1.0:
+                    out.setdefault(sid, {})["goal_current_ma"] = ma
+        return out
 
-    def _ensure_motion_profile(self, ids: list[int]) -> list[int]:
-        """Make sure every servo about to get torque has the robots.yaml profile loaded.
+    def _ensure_ram_config(self, ids: list[int]) -> list[int]:
+        """Make sure every servo about to get torque has robots.yaml's RAM settings loaded:
+        the motion profile, and in mode 5 the Goal_Current cap.
 
-        The profile lives in servo RAM, and the gateway only writes it at connect. Anything
-        that restarts a servo in between -- the `reboot` that clears a latched fault, a
-        brownout, an unplugged joint -- silently puts it back to 0, i.e. full speed. Torque
-        is RAM too and comes back OFF from every one of those, so `enable` is the one door
-        every such servo must pass through before it can move again: checking here covers
-        all of them. Returns the servo ids whose profile had to be restored.
+        RAM is written at connect and nowhere else, and anything that restarts a servo in
+        between -- the `reboot` that clears a latched fault, a brownout, an unplugged joint
+        -- silently resets it: a profile of 0 means full speed. Torque is RAM too and comes
+        back OFF from every one of those, so `enable` is the one door every such servo must
+        pass through before it can move again, and checking here covers all of them.
+        Returns the servo ids that had to be restored.
         """
-        stale = self._profile_mismatches(ids)
+        stale = self._ram_mismatches(ids)
         if not stale:
             return []
         logger.warning(
-            "servo(s) %s lost their motion profile (reads %s) -- a reboot, brownout or power "
-            "loss resets it to 0 = full speed. Re-applying before enabling torque.",
+            "servo(s) %s lost their RAM settings (read %s) -- a reboot, brownout or power loss "
+            "resets them, and a profile of 0 means full speed. Re-applying before enabling.",
             sorted(stale), stale,
         )
-        self.bus.apply_motion_profile()
-        still = self._profile_mismatches(ids)
+        self._apply_ram_config()
+        still = self._ram_mismatches(ids)
         if still:
             raise GatewayError(
-                f"refusing to enable: servo(s) {sorted(still)} will not take the motion "
-                f"profile (read back {still}) and would move at full speed toward every "
-                "goal. Check `error_status`, then retry `enable` or `apply_motion_profile`"
+                f"refusing to enable: servo(s) {sorted(still)} will not take the configured "
+                f"motion profile / Goal_Current (read back {still}); without them a servo "
+                "moves at full speed or pushes uncapped. Check `error_status` and "
+                "`check_current_limit`, then retry"
             )
         return sorted(stale)
 

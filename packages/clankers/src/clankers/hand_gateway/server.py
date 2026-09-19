@@ -143,6 +143,8 @@ class HandGatewayServer:
             return svc.set_current_limit(ma=msg["ma"])
         if op == "check_current_limit":
             return svc.check_current_limit()
+        if op == "configure_current_limiting":
+            return svc.configure_current_limiting(confirm=bool(msg.get("confirm", False)))
         if op == "apply_motion_profile":
             return svc.apply_motion_profile()
         if op == "set_mechanical_zero":

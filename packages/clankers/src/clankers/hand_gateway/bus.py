@@ -19,6 +19,7 @@ from typing import Any
 from clankers.config import HandConfig, load_robots
 
 from .dynamixel_compat import (
+    OPERATING_MODE_CURRENT_BASED_POSITION,
     patch_xc330_m288_table,
     profile_register_values,
     rad_delta_to_ticks,
@@ -85,6 +86,26 @@ class HandBus(ABC):
         necessarily what is there now.
         """
         return {}
+
+    def read_goal_currents(self) -> dict[int, float]:
+        """`{servo_id: mA}` from Goal_Current (RAM). Empty if the bus cannot report it."""
+        return {}
+
+    def write_goal_currents(self, ma: float) -> None:
+        """Goal_Current on every servo: the working current cap in operating mode 5.
+
+        RAM, so no wear -- and lost on every reboot. The servo refuses a value above its
+        Current_Limit, which is what keeps the EEPROM ceiling in force through a reboot.
+        """
+        raise NotImplementedError(f"{type(self).__name__} cannot write Goal_Current")
+
+    def read_operating_modes(self) -> dict[int, int]:
+        """`{servo_id: Operating_Mode}` (EEPROM). Empty if the bus cannot report it."""
+        return {}
+
+    def write_operating_modes(self, modes: dict[int, int]) -> None:
+        """`modes` is `{servo_id: Operating_Mode}`. EEPROM: wear-limited, torque must be off."""
+        raise NotImplementedError(f"{type(self).__name__} cannot write Operating_Mode")
 
     def read_current_limits(self) -> dict[int, float]:
         """`{servo_id: mA}` from Current_Limit (EEPROM). Empty if the bus cannot report it."""
@@ -154,10 +175,19 @@ class MockBus(HandBus):
         self._profile: dict[int, dict[str, int]] = {
             sid: {"velocity": 0, "acceleration": 0} for sid in self._joints
         }
+        # EEPROM starts as if `configure_current_limiting` had already run (like the current
+        # limit above); tests that need a factory-fresh servo set it back to 3 explicitly.
+        self._operating_mode: dict[int, int] = dict.fromkeys(
+            self._joints, self._hand_cfg.operating_mode
+        )
+        self._goal_current_ma: dict[int, float] = dict.fromkeys(self._joints, 0.0)
 
     def connect(self) -> None:
         self._connected = True
-        self.apply_motion_profile()  # as both real buses do on connect
+        # As both real buses do on connect.
+        self.apply_motion_profile()
+        if self._hand_cfg.operating_mode == OPERATING_MODE_CURRENT_BASED_POSITION:
+            self.write_goal_currents(self._hand_cfg.current_limit_ma)
 
     def disconnect(self) -> None:
         self._connected = False
@@ -239,6 +269,9 @@ class MockBus(HandBus):
         self._torque_enabled[servo_id] = False
         self._error_bits[servo_id] = 0
         self._profile[servo_id] = {"velocity": 0, "acceleration": 0}
+        # The manual does not document Goal_Current's initial value, which is exactly why
+        # the gateway reads it back rather than assuming; model it as "not what was asked".
+        self._goal_current_ma[servo_id] = 0.0
 
     def set_current_limit(self, ma: float) -> None:
         self._require_connected()
@@ -254,6 +287,32 @@ class MockBus(HandBus):
     def read_motion_profiles(self) -> dict[int, dict[str, int]]:
         self._require_connected()
         return {sid: dict(p) for sid, p in self._profile.items()}
+
+    def read_goal_currents(self) -> dict[int, float]:
+        self._require_connected()
+        return dict(self._goal_current_ma)
+
+    def write_goal_currents(self, ma: float) -> None:
+        self._require_connected()
+        # Mirrors the servo: a Goal_Current above Current_Limit is refused, and a sync write
+        # gets no status packet, so the refusal is silent -- only a read-back shows it.
+        if float(ma) > self._current_limit_ma:
+            return
+        for sid in self._joints:
+            self._goal_current_ma[sid] = float(ma)
+
+    def read_operating_modes(self) -> dict[int, int]:
+        self._require_connected()
+        return dict(self._operating_mode)
+
+    def write_operating_modes(self, modes: dict[int, int]) -> None:
+        self._require_connected()
+        self._check_ids(modes.keys())
+        locked = sorted(sid for sid in modes if self._torque_enabled[sid])
+        if locked:
+            raise RuntimeError(f"cannot write Operating_Mode while torque is on: {locked}")
+        for sid, mode in modes.items():
+            self._operating_mode[sid] = int(mode)
 
     def read_current_limits(self) -> dict[int, float]:
         self._require_connected()
@@ -347,6 +406,8 @@ class LerobotDynamixelBus(HandBus):
         self._ticks_per_rev = bus.model_resolution_table[model]
         self._verify_roll_call(baud)
         self.apply_motion_profile()
+        if self._hand_cfg.operating_mode == OPERATING_MODE_CURRENT_BASED_POSITION:
+            self.write_goal_currents(self._hand_cfg.current_limit_ma)
 
     def _verify_roll_call(self, baud: int) -> None:
         """Ping every servo robots.yaml expects; fail loudly naming whoever is missing.
@@ -474,6 +535,26 @@ class LerobotDynamixelBus(HandBus):
             sid: {"velocity": int(vel[name]), "acceleration": int(acc[name])}
             for sid, name in self._name_by_id.items()
         }
+
+    def read_goal_currents(self) -> dict[int, float]:
+        bus = self._require_connected()
+        raw = bus.sync_read("Goal_Current", normalize=False, num_retry=self.SYNC_READ_RETRIES)
+        return {sid: float(raw[name]) * self.CURRENT_MA_PER_LSB for sid, name in self._name_by_id.items()}
+
+    def write_goal_currents(self, ma: float) -> None:
+        bus = self._require_connected()
+        ticks = round(ma / self.CURRENT_MA_PER_LSB)
+        bus.sync_write("Goal_Current", dict.fromkeys(self._name_by_id.values(), ticks), normalize=False)
+
+    def read_operating_modes(self) -> dict[int, int]:
+        bus = self._require_connected()
+        raw = bus.sync_read("Operating_Mode", normalize=False, num_retry=self.SYNC_READ_RETRIES)
+        return {sid: int(raw[name]) for sid, name in self._name_by_id.items()}
+
+    def write_operating_modes(self, modes: dict[int, int]) -> None:
+        bus = self._require_connected()
+        for sid, mode in modes.items():
+            bus.write("Operating_Mode", self._name_by_id[sid], int(mode), normalize=False)
 
     def read_current_limits(self) -> dict[int, float]:
         bus = self._require_connected()
