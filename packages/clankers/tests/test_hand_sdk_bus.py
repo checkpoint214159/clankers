@@ -174,6 +174,8 @@ def test_control_table_block_reads_stay_contiguous() -> None:
     assert vel.addr + vel.size == pos.addr
     volt, temp = CONTROL_TABLE["Present_Input_Voltage"], CONTROL_TABLE["Present_Temperature"]
     assert volt.addr + volt.size == temp.addr
+    accel, velocity = CONTROL_TABLE["Profile_Acceleration"], CONTROL_TABLE["Profile_Velocity"]
+    assert accel.addr + accel.size == velocity.addr
 
 
 def test_eeprom_registers_are_flagged() -> None:
@@ -323,6 +325,20 @@ def test_motion_profile_is_applied_from_robots_yaml(bus: DynamixelBus, state: Fa
         state.get(SERVO_IDS[0], CONTROL_TABLE["Profile_Acceleration"].addr, 4)
         == applied["acceleration"]
     )
+
+
+def test_motion_profile_read_back_sees_a_servo_that_lost_it(
+    bus: DynamixelBus, state: FakeBusState
+) -> None:
+    """A rebooted servo's RAM is back at 0; the read-back is what lets `enable` notice."""
+    applied = bus.apply_motion_profile()
+    state.put(9, CONTROL_TABLE["Profile_Velocity"].addr, 4, 0)
+    state.put(9, CONTROL_TABLE["Profile_Acceleration"].addr, 4, 0)
+
+    live = bus.read_motion_profiles()
+
+    assert live[9] == {"velocity": 0, "acceleration": 0}
+    assert live[8] == {"velocity": applied["velocity"], "acceleration": applied["acceleration"]}
 
 
 def test_one_servo_refusing_the_profile_does_not_stop_the_gateway(

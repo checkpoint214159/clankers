@@ -20,10 +20,9 @@ from clankers.config import HandConfig, load_robots
 
 from .dynamixel_compat import (
     patch_xc330_m288_table,
+    profile_register_values,
     rad_delta_to_ticks,
     rad_to_ticks,
-    rev_per_min2_to_profile_accel,
-    rev_per_min_to_profile_velocity,
     ticks_delta_to_rad,
     ticks_to_rad,
 )
@@ -75,6 +74,15 @@ class HandBus(ABC):
 
         Returns the register values written. Default implementation is a no-op for buses
         that do not model firmware profiles.
+        """
+        return {}
+
+    def read_motion_profiles(self) -> dict[int, dict[str, int]]:
+        """`{servo_id: {"velocity": lsb, "acceleration": lsb}}` read back from the servos.
+
+        Empty if the bus cannot report it. These are RAM registers: a reboot or any loss of
+        power puts them back to 0 ("no profile"), so what was written at connect is not
+        necessarily what is there now.
         """
         return {}
 
@@ -141,10 +149,15 @@ class MockBus(HandBus):
         # `_pos` is the RAW encoder position; what a read reports is raw + homing offset,
         # exactly as the servo does it, so re-zeroing shifts readings the same way.
         self._homing_offset: dict[int, int] = dict.fromkeys(self._joints, 0)
-        self._profile: dict[str, int] = {"velocity": 0, "acceleration": 0}
+        # Per servo, because on the real hand it is lost per servo: one reboot or one
+        # unplugged joint zeroes that servo's profile while its neighbours keep theirs.
+        self._profile: dict[int, dict[str, int]] = {
+            sid: {"velocity": 0, "acceleration": 0} for sid in self._joints
+        }
 
     def connect(self) -> None:
         self._connected = True
+        self.apply_motion_profile()  # as both real buses do on connect
 
     def disconnect(self) -> None:
         self._connected = False
@@ -221,9 +234,11 @@ class MockBus(HandBus):
     def reboot(self, servo_id: int) -> None:
         self._require_connected()
         self._check_ids([servo_id])
-        # Real Dynamixel reboot clears Hardware_Error_Status and always drops torque.
+        # Real Dynamixel reboot clears Hardware_Error_Status and always drops torque, and it
+        # restarts the firmware, so the RAM area (the motion profile) is back at factory 0.
         self._torque_enabled[servo_id] = False
         self._error_bits[servo_id] = 0
+        self._profile[servo_id] = {"velocity": 0, "acceleration": 0}
 
     def set_current_limit(self, ma: float) -> None:
         self._require_connected()
@@ -231,14 +246,14 @@ class MockBus(HandBus):
 
     def apply_motion_profile(self) -> dict[str, int]:
         self._require_connected()
-        profile = self._hand_cfg.profile or {}
-        self._profile = {
-            "velocity": rev_per_min_to_profile_velocity(profile.get("velocity_rev_per_min", 0)),
-            "acceleration": rev_per_min2_to_profile_accel(
-                profile.get("acceleration_rev_per_min2", 0)
-            ),
-        }
-        return dict(self._profile)
+        values = profile_register_values(self._hand_cfg.profile)
+        for sid in self._joints:
+            self._profile[sid] = dict(values)
+        return {**values, "failed_servo_ids": []}
+
+    def read_motion_profiles(self) -> dict[int, dict[str, int]]:
+        self._require_connected()
+        return {sid: dict(p) for sid, p in self._profile.items()}
 
     def read_current_limits(self) -> dict[int, float]:
         self._require_connected()
@@ -421,14 +436,10 @@ class LerobotDynamixelBus(HandBus):
 
     def apply_motion_profile(self) -> dict[str, int]:
         bus = self._require_connected()
-        profile = self._hand_cfg.profile or {}
+        wanted = profile_register_values(self._hand_cfg.profile)
         values = {
-            "Profile_Velocity": rev_per_min_to_profile_velocity(
-                profile.get("velocity_rev_per_min", 0)
-            ),
-            "Profile_Acceleration": rev_per_min2_to_profile_accel(
-                profile.get("acceleration_rev_per_min2", 0)
-            ),
+            "Profile_Velocity": wanted["velocity"],
+            "Profile_Acceleration": wanted["acceleration"],
         }
         # The profile is a comfort setting, not a precondition for operating the hand, so a
         # servo that refuses it must not stop the gateway coming up. A latched hardware fault
@@ -452,6 +463,16 @@ class LerobotDynamixelBus(HandBus):
             "velocity": values["Profile_Velocity"],
             "acceleration": values["Profile_Acceleration"],
             "failed_servo_ids": sorted(failed),
+        }
+
+    def read_motion_profiles(self) -> dict[int, dict[str, int]]:
+        bus = self._require_connected()
+        n = self.SYNC_READ_RETRIES
+        vel = bus.sync_read("Profile_Velocity", normalize=False, num_retry=n)
+        acc = bus.sync_read("Profile_Acceleration", normalize=False, num_retry=n)
+        return {
+            sid: {"velocity": int(vel[name]), "acceleration": int(acc[name])}
+            for sid, name in self._name_by_id.items()
         }
 
     def read_current_limits(self) -> dict[int, float]:

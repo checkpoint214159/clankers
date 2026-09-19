@@ -33,9 +33,8 @@ from .dynamixel_compat import (
     Register,
     decode_signed,
     encode_signed,
+    profile_register_values,
     rad_to_ticks,
-    rev_per_min2_to_profile_accel,
-    rev_per_min_to_profile_velocity,
     ticks_to_rad,
 )
 
@@ -320,14 +319,10 @@ class DynamixelBus(HandBus):
         )
 
     def apply_motion_profile(self) -> dict[str, int]:
-        profile = self._hand_cfg.profile or {}
+        wanted = profile_register_values(self._hand_cfg.profile)
         values = {
-            "Profile_Velocity": rev_per_min_to_profile_velocity(
-                profile.get("velocity_rev_per_min", 0)
-            ),
-            "Profile_Acceleration": rev_per_min2_to_profile_accel(
-                profile.get("acceleration_rev_per_min2", 0)
-            ),
+            "Profile_Velocity": wanted["velocity"],
+            "Profile_Acceleration": wanted["acceleration"],
         }
         # The profile is a comfort setting, not a precondition for operating the hand, so a
         # servo that refuses it must not stop the gateway coming up. A latched hardware fault
@@ -351,6 +346,20 @@ class DynamixelBus(HandBus):
             "velocity": values["Profile_Velocity"],
             "acceleration": values["Profile_Acceleration"],
             "failed_servo_ids": sorted(failed),
+        }
+
+    def read_motion_profiles(self) -> dict[int, dict[str, int]]:
+        accel = CONTROL_TABLE["Profile_Acceleration"]
+        velocity = CONTROL_TABLE["Profile_Velocity"]
+        # 108..115 is contiguous, so both come back in one transaction.
+        start = accel.addr
+        reader = self._read_block(start, velocity.addr + velocity.size - start)
+        return {
+            sid: {
+                "velocity": self._field(reader, sid, velocity),
+                "acceleration": self._field(reader, sid, accel),
+            }
+            for sid in self._name_by_id
         }
 
     def read_current_limits(self) -> dict[int, float]:

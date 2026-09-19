@@ -4,7 +4,8 @@
 A hardware error (undervoltage, overload, overheat) LATCHES: the servo blinks red and
 refuses commands until it is rebooted or power-cycled. Rebooting drops torque and clears
 Hardware_Error_Status; it does not touch EEPROM, so IDs, baud, homing offsets and current
-limits all survive.
+limits all survive. It DOES restart the servo's firmware, so RAM -- the motion profile --
+comes back at 0 (full speed); the gateway's `enable` op detects that and restores it.
 
 Usage (gateway must be running -- it owns the serial port):
     uv run python scripts/reboot_hand_servos.py            # reboot whatever reports a fault

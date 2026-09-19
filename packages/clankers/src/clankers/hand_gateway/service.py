@@ -16,6 +16,7 @@ from clankers.config import HandConfig, load_robots
 from clankers.safety import SafetyClamp, Watchdog, clamp_step, decode_dynamixel_error
 
 from .bus import HandBus
+from .dynamixel_compat import profile_register_values
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ class GatewayService:
                 f"refusing to enable servos with unacknowledged faults {faulted}; "
                 "clear each with the `reboot` op first (ADR-0004)"
             )
+        restored = self._ensure_motion_profile(ids)
         self.bus.enable_torque(ids)
         # Reseed the clamp from live positions on EVERY enable: while torque was off the
         # hand is back-drivable, so any stale last-target would let the next `pos` command
@@ -121,7 +123,7 @@ class GatewayService:
         # (Re-)arm the watchdog: a prior trip leaves torque off until an operator re-enables.
         self._enabled_ids.update(ids)
         self.watchdog.start()
-        return {"servo_ids": ids}
+        return {"servo_ids": ids, "profile_restored": restored}
 
     def disable(self, servo_ids: list[int] | None = None) -> dict[str, Any]:
         ids = list(servo_ids) if servo_ids is not None else list(self._servo_ids)
@@ -266,12 +268,12 @@ class GatewayService:
     def apply_motion_profile(self) -> dict[str, Any]:
         """Re-push Profile_Velocity/Acceleration to every servo.
 
-        These are RAM registers, so unlike Current_Limit they do NOT survive a power cycle:
-        a servo that was unplugged, browned out, or hot-swapped comes back with the factory
-        default of 0, which does not mean "slow" but "no profile at all" -- it drives at full
-        speed toward every goal while its neighbours still ramp. The gateway applies the
-        profile once at connect, so without this the only cure was a gateway restart, which
-        drops torque on all sixteen.
+        These are RAM registers, so unlike Current_Limit they do NOT survive a reboot or a
+        power cycle: a servo that was rebooted to clear a fault, unplugged, browned out, or
+        hot-swapped comes back with the factory default of 0, which does not mean "slow" but
+        "no profile at all" -- it drives at full speed toward every goal while its
+        neighbours still ramp. `enable` now checks and restores the profile itself, so this
+        op is for pushing it by hand, not the only line of defence.
         """
         applied = self.bus.apply_motion_profile()
         logger.info("motion profile re-applied: %s", applied)
@@ -368,6 +370,39 @@ class GatewayService:
         unknown = [sid for sid in ids if sid not in self._joint_by_servo_id]
         if unknown:
             raise GatewayError(f"unknown servo_id(s): {unknown}")
+
+    def _profile_mismatches(self, ids: list[int]) -> dict[int, dict[str, int]]:
+        wanted = profile_register_values(self.hand_cfg.profile)
+        live = self.bus.read_motion_profiles()
+        return {sid: live[sid] for sid in ids if sid in live and live[sid] != wanted}
+
+    def _ensure_motion_profile(self, ids: list[int]) -> list[int]:
+        """Make sure every servo about to get torque has the robots.yaml profile loaded.
+
+        The profile lives in servo RAM, and the gateway only writes it at connect. Anything
+        that restarts a servo in between -- the `reboot` that clears a latched fault, a
+        brownout, an unplugged joint -- silently puts it back to 0, i.e. full speed. Torque
+        is RAM too and comes back OFF from every one of those, so `enable` is the one door
+        every such servo must pass through before it can move again: checking here covers
+        all of them. Returns the servo ids whose profile had to be restored.
+        """
+        stale = self._profile_mismatches(ids)
+        if not stale:
+            return []
+        logger.warning(
+            "servo(s) %s lost their motion profile (reads %s) -- a reboot, brownout or power "
+            "loss resets it to 0 = full speed. Re-applying before enabling torque.",
+            sorted(stale), stale,
+        )
+        self.bus.apply_motion_profile()
+        still = self._profile_mismatches(ids)
+        if still:
+            raise GatewayError(
+                f"refusing to enable: servo(s) {sorted(still)} will not take the motion "
+                f"profile (read back {still}) and would move at full speed toward every "
+                "goal. Check `error_status`, then retry `enable` or `apply_motion_profile`"
+            )
+        return sorted(stale)
 
     def _on_watchdog_trip(self) -> None:
         gap = self.watchdog.trip_gap_s

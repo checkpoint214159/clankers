@@ -125,6 +125,19 @@ def rev_per_min2_to_profile_accel(rev_per_min2: float) -> int:
     return max(1, round(rev_per_min2 / PROFILE_ACCEL_REV_PER_MIN2_PER_LSB))
 
 
+def profile_register_values(profile: dict[str, float] | None) -> dict[str, int]:
+    """robots.yaml `hand.profile` -> `{"velocity": lsb, "acceleration": lsb}`.
+
+    One conversion shared by every bus's write AND by the gateway's read-back check, so
+    "what we wrote" and "what we expect to read" cannot drift apart.
+    """
+    profile = profile or {}
+    return {
+        "velocity": rev_per_min_to_profile_velocity(profile.get("velocity_rev_per_min", 0)),
+        "acceleration": rev_per_min2_to_profile_accel(profile.get("acceleration_rev_per_min2", 0)),
+    }
+
+
 def ticks_delta_to_rad(ticks: int) -> float:
     """Convert a tick *difference* to radians.
 

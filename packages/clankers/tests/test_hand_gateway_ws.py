@@ -508,12 +508,76 @@ async def test_motion_profile_can_be_reapplied_without_restarting() -> None:
         assert expected["velocity"] > 0, "a zero profile is the same as no profile"
 
         # Simulate two servos having been unplugged and replaced: their profile is gone.
-        bus._profile = {"velocity": 0, "acceleration": 0}
+        for sid in (14, 15):
+            bus._profile[sid] = {"velocity": 0, "acceleration": 0}
 
         resp = await client.call("apply_motion_profile")
         assert resp["ok"] is True, resp.get("error")
         assert resp["data"]["velocity"] == expected["velocity"]
         assert resp["data"]["acceleration"] == expected["acceleration"]
+        live = bus.read_motion_profiles()
+        assert live[14]["velocity"] == live[15]["velocity"] == expected["velocity"]
+
+
+async def test_enable_after_a_fault_reboot_restores_the_motion_profile() -> None:
+    """The incident: a stall latches a fault, the operator reboots the servo to clear it,
+    reconnects and enables -- and that one servo slams to every goal at full speed while
+    the rest ramp. Reboot restarts the servo's firmware, which zeroes the RAM-held profile,
+    and nothing but a gateway restart used to put it back.
+    """
+    async with (
+        _gateway() as (server, _service, bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        client = _WsClient(ws)
+        expected = {k: v for k, v in bus.apply_motion_profile().items() if k != "failed_servo_ids"}
+        assert expected["velocity"] > 0, "a zero profile is the same as no profile"
+
+        bus.inject_fault(13, 1 << 0)  # undervoltage from a stall
+        assert (await client.call("enable"))["ok"] is False  # latched: must be acknowledged
+        assert (await client.call("reboot", servo_id=13))["ok"] is True
+        assert bus.read_motion_profiles()[13] == {"velocity": 0, "acceleration": 0}
+
+        resp = await client.call("enable")
+        assert resp["ok"] is True, resp.get("error")
+        assert resp["data"]["profile_restored"] == [13]
+        assert all(p == expected for p in bus.read_motion_profiles().values())
+
+
+async def test_enable_is_refused_when_the_profile_will_not_stick() -> None:
+    """If the read-back still shows no profile after re-applying, torque must stay off:
+    enabling anyway is exactly the full-speed hazard the check exists for."""
+
+    class ProfileRejectingBus(MockBus):
+        def apply_motion_profile(self) -> dict[str, int]:
+            result = super().apply_motion_profile()
+            self._profile[6] = {"velocity": 0, "acceleration": 0}
+            return result
+
+    bus = ProfileRejectingBus(CFG.hand)
+    bus.connect()
+    service = GatewayService(bus, CFG.hand)
+    server = HandGatewayServer(service, host="127.0.0.1", port=0)
+    await server.start()
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{server.port}") as ws:
+            resp = await _WsClient(ws).call("enable")
+            assert resp["ok"] is False
+            assert "[6]" in resp["error"] and "full speed" in resp["error"]
+            assert not any(bus.read_torque_enabled(list(range(16))).values())
+    finally:
+        await server.stop()
+        bus.disconnect()
+
+
+async def test_enable_leaves_a_healthy_profile_alone() -> None:
+    async with (
+        _gateway() as (server, _service, _bus),
+        websockets.connect(f"ws://127.0.0.1:{server.port}") as ws,
+    ):
+        resp = await _WsClient(ws).call("enable")
+        assert resp["ok"] is True, resp.get("error")
+        assert resp["data"]["profile_restored"] == []
 
 
 async def test_apply_motion_profile_is_advertised() -> None:
